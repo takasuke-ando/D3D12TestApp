@@ -1,0 +1,9 @@
+
+
+#ignore folders
+x64/
+.vs/
+
+#ignore files
+D3D12TestApp.sdf
+
