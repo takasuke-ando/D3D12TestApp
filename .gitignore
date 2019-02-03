@@ -3,7 +3,8 @@
 #ignore folders
 x64/
 .vs/
+ipch/
 
 #ignore files
 D3D12TestApp.sdf
-
+D3D12TestApp.VC.opendb
