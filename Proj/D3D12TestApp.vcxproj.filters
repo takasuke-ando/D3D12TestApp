@@ -30,7 +30,7 @@
     <ClInclude Include="Resource.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="D3D12TestApp.h">
+    <ClInclude Include="..\Source\D3D12TestApp.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
@@ -38,7 +38,7 @@
     <ClCompile Include="stdafx.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
-    <ClCompile Include="D3D12TestApp.cpp">
+    <ClCompile Include="..\Source\D3D12TestApp.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>
@@ -56,16 +56,10 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="hlsl\SimplePS.hlsl">
-      <Filter>リソース ファイル\hlsl</Filter>
-    </FxCompile>
-    <FxCompile Include="hlsl\SimpleVS.hlsl">
-      <Filter>リソース ファイル\hlsl</Filter>
-    </FxCompile>
+    <FxCompile Include="..\Source\hlsl\SimplePS.hlsl" />
+    <FxCompile Include="..\Source\hlsl\SimpleVS.hlsl" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="hlsl\SimpleDef.hlsli">
-      <Filter>リソース ファイル\hlsl</Filter>
-    </None>
+    <None Include="..\Source\hlsl\SimpleDef.hlsli" />
   </ItemGroup>
 </Project>

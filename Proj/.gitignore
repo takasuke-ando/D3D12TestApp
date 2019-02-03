@@ -1,0 +1,9 @@
+
+
+#ignore folders
+Debug/
+x64/
+
+#ignore files
+D3D12TestApp.vcxproj.user
+
