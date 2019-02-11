@@ -36,6 +36,17 @@ GfxLib::VertexShader	vertexshader;
 GfxLib::DepthStencil	depthStencil;
 GfxLib::Texture2D		texture2D;
 GfxLib::DescriptorHeap	descHeap_Sampler;
+GfxLib::DescriptorHeap	descHeap_CBV;
+GfxLib::DepthStencilState	depthStencilState;
+GfxLib::BlendState		blendState;
+GfxLib::BlendState		blendState2;
+GfxLib::RasterizerState	rasterizerState;
+GfxLib::InputLayout		inputLayout;
+
+
+// その場でPSOを作る
+#define		ENABLE_ONTHEFLY_PSO
+
 //GfxLib::DescriptorHeap  descHeap_CbvSrv;
 
 
@@ -191,7 +202,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		gfxCore.GetD3DDevice()->CreateSampler(&sampsDesc, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
 
 		
-
+		descHeap_CBV.InitializeCBV_SRV_UAV(10);
 	}
 
 	{
@@ -220,8 +231,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		};
 
 		Vertex vertices[] = {
-			{ { 0.f,1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.f,1.f },	{ 1.f,1.f,1.f,1.f }, },
-			{ { 1.f,-1.f,0.f },	{ 0.f,0.f,-1.f },	{ 1.f,0.f },	{ 0.f,1.f,1.f,1.f }, },
+			{ { 0.f,1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.f,1.f },	{ 1.f,1.f,1.f,0.5f }, },
+			{ { 1.f,-1.f,0.f },	{ 0.f,0.f,-1.f },	{ 1.f,0.f },	{ 0.f,1.f,1.f,0.3f }, },
 			{ { -1.f,-1.f,0.f },{ 0.f,0.f,-1.f },	{ 0.f,0.f },	{ 1.f,0.f,0.f,1.f }, },
 
 		};
@@ -418,7 +429,27 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		desc.SampleDesc.Count	= 1;
 
 
+#ifndef ENABLE_ONTHEFLY_PSO
 		pipelineState.Initialize(desc);
+#endif
+
+		//	OnTheFly PSO
+		depthStencilState.Initialize(desc.DepthStencilState);
+
+		blendState.Initialize(descBS);
+
+		// AlphaBlend
+		descRTBS.BlendEnable = true;
+		descRTBS.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		descRTBS.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+
+		descBS.RenderTarget[0] = descRTBS;
+		blendState2.Initialize(descBS);
+
+
+		rasterizerState.Initialize(descRS);
+
+		inputLayout.Initialize(_countof(inputElement),inputElement);
 
 	}
 #endif
@@ -465,6 +496,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	depthStencil.Finalize();
 	texture2D.Finalize();
 	descHeap_Sampler.Finalize();
+	descHeap_CBV.Finalize();
+	depthStencilState.Finalize();
+	rasterizerState.Finalize();
+	blendState.Finalize();
+	blendState2.Finalize();
+	inputLayout.Finalize();
+
 
 	gfxCore.Finalize();
 
@@ -722,7 +760,8 @@ void Render()
 			};
 			//d3dCmdList->SetDescriptorHeaps(1, &heap );
 
-			d3dCmdList->SetGraphicsRootSignature(rootSig.GetD3DRootSignature());
+			//d3dCmdList->SetGraphicsRootSignature(rootSig.GetD3DRootSignature());
+			cmdList.SetRootSignature(&rootSig);
 
 			// デスクリプタテーブルを設定する
 			d3dCmdList->SetDescriptorHeaps( _countof(heap) , heap);
@@ -732,13 +771,33 @@ void Render()
 			//
 			//d3dCmdList->SetGraphicsRootShaderResourceView(2, texture2D.GetD3DResource()->GetGPUVirtualAddress());
 
+#ifdef ENABLE_ONTHEFLY_PSO
+
+
+			cmdList.OMSetDepthStencilState(&depthStencilState);
+			cmdList.OMSetBlendState(&blendState);
+			cmdList.RSSetState(&rasterizerState);
+			cmdList.IASetInputLayout(&inputLayout);
+			cmdList.SetPrimitiveTopologyType(D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE); 
+
+			cmdList.PSSetShader(&pixelshader);
+			cmdList.VSSetShader(&vertexshader);
+
+			cmdList.FlushPipeline();
+			
+
+#else
+
 			d3dCmdList->SetPipelineState(pipelineState.GetD3DPipelineState());
+
+
+
+#endif
 
 			// 頂点バッファの設定、プリミティブトポロジの設定
 			d3dCmdList->IASetVertexBuffers(0, 1, &vtxBuff.GetVertexBufferView());
 			d3dCmdList->IASetIndexBuffer(&idxBuff.GetIndexBufferView());
 			d3dCmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
 			d3dCmdList->DrawInstanced(3, 1, 0, 0);
 
 
@@ -787,7 +846,8 @@ void Render()
 				d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
 
 
-
+				cmdList.OMSetBlendState(&blendState2);
+				cmdList.FlushPipeline();
 
 				d3dCmdList->DrawInstanced(3, 1, 0, 0);
 				
