@@ -17,7 +17,7 @@ PSOutput PSMain(VSOutput input)
 
 	float4 t = tex2d.Sample(ss, input.TexCoord);
 
-	output.Color = t;
+	output.Color *= t;
 
 	return output;
 }
