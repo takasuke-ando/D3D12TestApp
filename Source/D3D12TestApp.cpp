@@ -675,6 +675,7 @@ void Render()
 
 
 		cmdList.Reset();
+
 		//cmdList2.Reset();
 
 		ID3D12GraphicsCommandList *d3dCmdList = cmdList.GetD3DCommandList();
