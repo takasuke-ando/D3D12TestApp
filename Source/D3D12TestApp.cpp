@@ -43,6 +43,9 @@ GfxLib::BlendState		blendState2;
 GfxLib::RasterizerState	rasterizerState;
 GfxLib::InputLayout		inputLayout;
 
+GfxLib::FontSystem		fontSystem;
+GfxLib::FontData		fontData;
+
 
 // その場でPSOを作る
 #define		ENABLE_ONTHEFLY_PSO
@@ -231,9 +234,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		};
 
 		Vertex vertices[] = {
-			{ { 0.f,1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.f,1.f },	{ 1.f,1.f,1.f,0.5f }, },
-			{ { 1.f,-1.f,0.f },	{ 0.f,0.f,-1.f },	{ 1.f,0.f },	{ 0.f,1.f,1.f,0.3f }, },
-			{ { -1.f,-1.f,0.f },{ 0.f,0.f,-1.f },	{ 0.f,0.f },	{ 1.f,0.f,0.f,1.f }, },
+			{ { 0.f,1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.5f,0.1f },	{ 1.f,1.f,1.f,1.f }, },
+			{ { 1.f,-1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.1f,0.9f },	{ 1.f,1.f,1.f,1.f }, },
+			{ { -1.f,-1.f,0.f },{ 0.f,0.f,-1.f },	{ 0.9f,0.9f },	{ 1.f,1.f,1.f,1.f }, },
 
 		};
 
@@ -343,6 +346,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		//gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1, descHeap_CbvSrv.GetCPUDescriptorHandleByIndex(1), texture2D.GetSrvDescHandle() , D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
 
 
+	}
+	{
+
+		fontSystem.Initialize();
+		fontData.Initialize(L"Media\\Texture\\Font.dds");
 	}
 
 #if 1
@@ -481,6 +489,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	cmdList.AllocateGpuBuffer(cpuAddress, 128, 16);
 	*/
 
+
+
+	gfxCore.WaitGpuFinish();
+
+	fontData.Finalize();
+	fontSystem.Finalize();
 
 	swapChain.Finalize();
 	cmdList.Finalize();
@@ -790,8 +804,7 @@ void Render()
 #else
 
 			d3dCmdList->SetPipelineState(pipelineState.GetD3DPipelineState());
-
-
+			
 
 #endif
 
@@ -799,7 +812,7 @@ void Render()
 			d3dCmdList->IASetVertexBuffers(0, 1, &vtxBuff.GetVertexBufferView());
 			d3dCmdList->IASetIndexBuffer(&idxBuff.GetIndexBufferView());
 			d3dCmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			d3dCmdList->DrawInstanced(3, 1, 0, 0);
+			//d3dCmdList->DrawInstanced(3, 1, 0, 0);
 
 
 			// 2回目の描画
@@ -847,11 +860,31 @@ void Render()
 				d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
 
 
-				cmdList.OMSetBlendState(&blendState2);
+				cmdList.OMSetBlendState(&blendState);
 				cmdList.FlushPipeline();
 
 				d3dCmdList->DrawInstanced(3, 1, 0, 0);
 				
+			}
+
+			{
+				GfxLib::FontRenderer fontRender(&cmdList,&fontSystem,&fontData,vp);
+
+
+				// Todo : フォント内部の処理とする
+				GfxLib::DescriptorBuffer descBuff = cmdList.AllocateDescriptorBuffer(2);
+				descBuff.CopyHandle(1, fontData.GetTexture().GetSrvDescHandle());
+
+
+				d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
+
+
+				fontRender.Begin();
+
+				fontRender.DrawFormatText(0, 0, L"ABCDEF");
+
+				fontRender.End();
+
 			}
 
 			/*

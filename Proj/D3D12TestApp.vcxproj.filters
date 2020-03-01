@@ -58,6 +58,12 @@
   <ItemGroup>
     <FxCompile Include="..\Source\hlsl\SimplePS.hlsl" />
     <FxCompile Include="..\Source\hlsl\SimpleVS.hlsl" />
+    <FxCompile Include="..\Source\hlsl\FontPS.hlsl">
+      <Filter>リソース ファイル\hlsl</Filter>
+    </FxCompile>
+    <FxCompile Include="..\Source\hlsl\FontVS.hlsl">
+      <Filter>リソース ファイル\hlsl</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Source\hlsl\SimpleDef.hlsli" />
