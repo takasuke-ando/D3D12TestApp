@@ -36,7 +36,7 @@ GfxLib::VertexShader	vertexshader;
 GfxLib::DepthStencil	depthStencil;
 GfxLib::Texture2D		texture2D;
 GfxLib::DescriptorHeap	descHeap_Sampler;
-GfxLib::DescriptorHeap	descHeap_CBV;
+//GfxLib::DescriptorHeap	descHeap_CBV;
 GfxLib::DepthStencilState	depthStencilState;
 GfxLib::BlendState		blendState;
 GfxLib::BlendState		blendState2;
@@ -188,7 +188,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 	{
 		// サンプラのデスクリプタテーブル
-		descHeap_Sampler.InitializeSampler(1);
+		descHeap_Sampler.InitializeSampler(1,false);
 
 		D3D12_SAMPLER_DESC	sampsDesc = {
 			D3D12_FILTER_MIN_MAG_MIP_LINEAR,
@@ -205,7 +205,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		gfxCore.GetD3DDevice()->CreateSampler(&sampsDesc, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
 
 		
-		descHeap_CBV.InitializeCBV_SRV_UAV(10);
+		//descHeap_CBV.InitializeCBV_SRV_UAV(10,false);
 	}
 
 	{
@@ -510,7 +510,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	depthStencil.Finalize();
 	texture2D.Finalize();
 	descHeap_Sampler.Finalize();
-	descHeap_CBV.Finalize();
+	//descHeap_CBV.Finalize();
 	depthStencilState.Finalize();
 	rasterizerState.Finalize();
 	blendState.Finalize();
@@ -767,11 +767,17 @@ void Render()
 			//descBuff.CopyHandle(0, constantBuffer.GetCbvDescHandle());
 			descBuff.CopyHandle(1, texture2D.GetSrvDescHandle());
 
+
+			GfxLib::DescriptorBuffer sampsBuff = cmdList.AllocateDescriptorBuffer_Sampler(1);
+
+			sampsBuff.CopyHandle(0, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
+
+
 			// Rootsignatureおよび、DescriptorHeap対応
 			ID3D12DescriptorHeap *heap[] = {
 				//cbvsrvHeap->GetD3DDescriptorHeap() ,
 				descBuff.GetD3DDescriptorHeap(),
-				descHeap_Sampler.GetD3DDescriptorHeap() ,
+				sampsBuff.GetD3DDescriptorHeap() ,
 			};
 			//d3dCmdList->SetDescriptorHeaps(1, &heap );
 
@@ -781,7 +787,8 @@ void Render()
 			// デスクリプタテーブルを設定する
 			d3dCmdList->SetDescriptorHeaps( _countof(heap) , heap);
 			d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle() );
-			d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
+			//d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
+			d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle() );
 
 			//
 			//d3dCmdList->SetGraphicsRootShaderResourceView(2, texture2D.GetD3DResource()->GetGPUVirtualAddress());
@@ -849,15 +856,18 @@ void Render()
 
 				descBuff.CopyHandle(1, texture2D.GetSrvDescHandle());
 
+				GfxLib::DescriptorBuffer sampsBuff = cmdList.AllocateDescriptorBuffer_Sampler(1);
+				sampsBuff.CopyHandle(0, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
 
 				ID3D12DescriptorHeap *heap[] = {
 					descBuff.GetD3DDescriptorHeap() ,
-					descHeap_Sampler.GetD3DDescriptorHeap() ,
+					sampsBuff.GetD3DDescriptorHeap() ,
 				};
 
 				d3dCmdList->SetDescriptorHeaps(_countof(heap) , heap );
 				d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
-				d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
+				//d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
+				d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
 
 
 				cmdList.OMSetBlendState(&blendState);
