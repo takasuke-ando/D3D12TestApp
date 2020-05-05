@@ -22,29 +22,42 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 HWND	g_hWnd;
 
-GfxLib::CoreSystem		gfxCore;
-GfxLib::SwapChain		swapChain;
-GfxLib::GraphicsCommandList		cmdList;
-GfxLib::RootSignature	rootSig;
-GfxLib::PipelineState	pipelineState;
-GfxLib::VertexBuffer	vtxBuff;
-GfxLib::IndexBuffer		idxBuff;
-GfxLib::PixelShader		pixelshader;
-GfxLib::VertexShader	vertexshader;
-//GfxLib::ConstantBuffer	constantBuffer;
-//GfxLib::ConstantBuffer	constantBuffer2;
-GfxLib::DepthStencil	depthStencil;
-GfxLib::Texture2D		texture2D;
-GfxLib::DescriptorHeap	descHeap_Sampler;
-//GfxLib::DescriptorHeap	descHeap_CBV;
-GfxLib::DepthStencilState	depthStencilState;
-GfxLib::BlendState		blendState;
-GfxLib::BlendState		blendState2;
-GfxLib::RasterizerState	rasterizerState;
-GfxLib::InputLayout		inputLayout;
+struct GFX{
+	GfxLib::CoreSystem		gfxCore;
+	GfxLib::SwapChain		swapChain;
+	GfxLib::GraphicsCommandList		cmdList;
+	GfxLib::RootSignature	rootSig;
+	GfxLib::PipelineState	pipelineState;
+	GfxLib::VertexBuffer	vtxBuff;
+	GfxLib::IndexBuffer		idxBuff;
+	GfxLib::PixelShader		pixelshader;
+	GfxLib::VertexShader	vertexshader;
+	//GfxLib::ConstantBuffer	constantBuffer;
+	//GfxLib::ConstantBuffer	constantBuffer2;
+	GfxLib::DepthStencil	depthStencil;
+	GfxLib::Texture2D		texture2D;
+	GfxLib::DescriptorHeap	descHeap_Sampler;
+	//GfxLib::DescriptorHeap	descHeap_CBV;
+	GfxLib::DepthStencilState	depthStencilState;
+	GfxLib::BlendState		blendState;
+	GfxLib::BlendState		blendState2;
+	GfxLib::RasterizerState	rasterizerState;
+	GfxLib::InputLayout		inputLayout;
 
-GfxLib::FontSystem		fontSystem;
-GfxLib::FontData		fontData;
+	GfxLib::FontSystem		fontSystem;
+	GfxLib::FontData		fontData;
+
+
+	bool	Initialize();
+	void	Finalize();
+
+	void	Update();
+	void	Render();
+};
+
+
+
+GFX * g_pGfx;
 
 
 // その場でPSOを作る
@@ -94,375 +107,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_D3D12TESTAPP));
 
 
+	g_pGfx = new GFX();
 
-	if (!gfxCore.Initialize()) {
+	if (!g_pGfx->Initialize()) {
 		return FALSE;
 	}
-
-
-    // メイン メッセージ ループ:
-	/*
-	MSG msg;
-	while (GetMessage(&msg, nullptr, 0, 0))
-    {
-        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
-	*/
-
-	/*{
-		D3D12_CPU_DESCRIPTOR_HANDLE	aHandle[32];
-
-		GfxLib::DescriptorAllocator* allocator = GfxLib::CoreSystem::GetInstance()->GetDescriptorAllocator();
-
-
-		for (uint32_t i = 0; i < _countof(aHandle); ++i) {
-
-			aHandle[i] = allocator->Allocate(GfxLib::DescriptorHeapType::RTV);
-
-		}
-
-
-		std::random_shuffle(aHandle, aHandle + _countof(aHandle)-1);
-
-		for (uint32_t i = 0; i < 8; ++i) {
-			allocator->Free(GfxLib::DescriptorHeapType::RTV, aHandle[i]);
-		}
-		for (uint32_t i = 0; i < 8; ++i) {
-			aHandle[i] = allocator->Allocate(GfxLib::DescriptorHeapType::RTV );
-		}
-
-
-		for (uint32_t i = 0; i < _countof(aHandle); ++i) {
-
-			 allocator->Free(GfxLib::DescriptorHeapType::RTV, aHandle[i]);
-
-		}
-
-		int i;
-		i = 0;
-
-	}*/
-
-	cmdList.Initialize(&gfxCore.GetCommandQueue());
-	swapChain.Initialize(g_hWnd);
-	
-	
-#if 1
-	/*
-		http://www.project-asura.com/program/d3d12/d3d12_002.html
-		を参考にしたテストコード
-	*/
-	{
-		// Root Signature test
-		GfxLib::RootSignatureDesc	rootSigDesc;
-
-
-		//GfxLib::DESCRIPTOR_RANGE	range = { GfxLib::DescriptorRangeType::Cbv,1,0 };
-		//rootSigDesc.AddParam_DescriptorTable(&range, 1);
-		// 0 から始まる、一つのCBV
-		GfxLib::DESCRIPTOR_RANGE aCbvSrvRange[] = {
-			{ GfxLib::DescriptorRangeType::Cbv,1,0 },
-			{ GfxLib::DescriptorRangeType::Srv,1,0 },
-		};
-		rootSigDesc.AddParam_DescriptorTable(aCbvSrvRange, _countof(aCbvSrvRange) );
-		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1,0 }, 1);
-
-		/*
-		rootSigDesc.AddParam_DescriptorTable(
-			std::array<GfxLib::DESCRIPTOR_RANGE,2>{ 
-				GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Cbv,1, 1 },
-				//GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Uav,1, 1 },
-				GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1, 1 },
-				//GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1, 0 }
-			}
-		);
-		//*/
-	
-		
-		rootSig.Initialize(rootSigDesc);
-	}
-
-	{
-		// サンプラのデスクリプタテーブル
-		descHeap_Sampler.InitializeSampler(1,false);
-
-		D3D12_SAMPLER_DESC	sampsDesc = {
-			D3D12_FILTER_MIN_MAG_MIP_LINEAR,
-			D3D12_TEXTURE_ADDRESS_MODE_WRAP,
-			D3D12_TEXTURE_ADDRESS_MODE_WRAP,
-			D3D12_TEXTURE_ADDRESS_MODE_WRAP,
-			0.f,
-			1,
-			D3D12_COMPARISON_FUNC_ALWAYS,
-			{ 0.f,0.f,0.f,0.f },
-			0,
-			13,
-		};
-		gfxCore.GetD3DDevice()->CreateSampler(&sampsDesc, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
-
-		
-		//descHeap_CBV.InitializeCBV_SRV_UAV(10,false);
-	}
-
-	{
-		// RenderTarget
-
-		//GfxLib::RenderTarget renderTarget;
-
-		//bool b = renderTarget.Initialize(GfxLib::Format::R8G8B8A8_UNORM, 128, 128, 1, true);
-
-
-		depthStencil.Initialize(GfxLib::Format::D32_FLOAT, swapChain.GetWidth(), swapChain.GetHeight() ,1,true);
-
-		
-	}
-
-	
-#if 1
-
-	{
-		//	Create Vertex Buffer and index buffer
-		struct Vertex {
-			DirectX::XMFLOAT3	Position;
-			DirectX::XMFLOAT3	Normal;
-			DirectX::XMFLOAT2	TexCoord;
-			DirectX::XMFLOAT4	Color;
-		};
-
-		Vertex vertices[] = {
-			{ { 0.f,1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.5f,0.1f },	{ 1.f,1.f,1.f,1.f }, },
-			{ { 1.f,-1.f,0.f },	{ 0.f,0.f,-1.f },	{ 0.1f,0.9f },	{ 1.f,1.f,1.f,1.f }, },
-			{ { -1.f,-1.f,0.f },{ 0.f,0.f,-1.f },	{ 0.9f,0.9f },	{ 1.f,1.f,1.f,1.f }, },
-
-		};
-
-		
-
-		vtxBuff.Initialize(vertices, sizeof(Vertex), _countof(vertices));
-
-
-		uint16_t indices[] = {
-			0,1,2
-		};
-
-		idxBuff.Initialize(indices, sizeof(indices), GfxLib::Format::R16_UINT);
-
-		
-	}
-#endif
-	{
-		// Create Texture2D
-
-
-		/*
-		bool b = texture2D.Initialize(GfxLib::Format::R8G8B8A8_UNORM, 128, 128, 1);
-
-
-		if (b) {
-
-			uint32_t  bits[128][128];
-
-
-			for (uint32_t y = 0; y < _countof(bits); ++y) {
-				for (uint32_t x = 0; x < _countof(bits[0]); ++x) {
-
-					bits[y][x] = ( 0xff << 24 ) | ( 0xff << 16 ) | ( (x*255/128) << 8 ) | ( (y*255/128) );
-
-				}
-			}
-
-			texture2D.WriteToSubresource(0, nullptr, bits, 4 * 128, 0);
-
-
-		}
-
-		*/
-
-		D3D12_SUBRESOURCE_DATA	subData;
-
-
-		uint32_t  bits[128][128];
-
-
-		for (uint32_t y = 0; y < _countof(bits); ++y) {
-			for (uint32_t x = 0; x < _countof(bits[0]); ++x) {
-
-				bits[y][x] = (0xff << 24) | (0xff << 16) | ((x * 255 / 128) << 8) | ((y * 255 / 128));
-
-			}
-		}
-		subData.pData = bits;
-		subData.RowPitch = sizeof(bits[0]);
-		subData.SlicePitch = 0;
-
-
-		//bool b = texture2D.Initialize(GfxLib::Format::R8G8B8A8_UNORM, 128, 128, 1, 1, &subData);
-		bool b = texture2D.InitializeFromFile(L"fire.dds");
-
-		b = b;
-
-
-	}
-
-
-	{
-
-		pixelshader.CreateFromFile(L"../x64/debug/SimplePS.cso");
-		vertexshader.CreateFromFile(L"../x64/debug/SimpleVS.cso");
-
-
-		/*
-		constantBuffer.Initialize(sizeof(CBData));
-		constantBuffer2.Initialize(sizeof(CBData));
-
-		CBData cbdata;
-
-		cbdata.world = XMMatrixIdentity();
-		cbdata.view = XMMatrixTranspose( XMMatrixLookAtLH( XMVectorSet(0.f,0.f,5.f,0.f ) , XMVectorZero(), XMVectorSet(0.f,1.f,0.f,0.f) ) );
-		cbdata.proj = XMMatrixTranspose( XMMatrixPerspectiveFovLH(3.14159f / 4.f, 1.f, 0.1f, 100.f) );
-
-		constantBuffer.SetData(&cbdata, sizeof(cbdata));
-
-
-		cbdata.world = XMMatrixTranspose( XMMatrixRotationY( XM_PI / 4 ) );
-
-		constantBuffer2.SetData(&cbdata, sizeof(cbdata));
-		*/
-	}
-
-
-
-	{
-		// CBV - SRV  DescriptorTable
-
-		//descHeap_CbvSrv.InitializeCBV_SRV_UAV(2);
-
-		// 0番目にCBV , 1番目にSRV
-		//gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1, descHeap_CbvSrv.GetCPUDescriptorHandleByIndex(0), constantBuffer.GetCbvDescHandle() , D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
-		//gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1, descHeap_CbvSrv.GetCPUDescriptorHandleByIndex(1), texture2D.GetSrvDescHandle() , D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
-
-
-	}
-	{
-
-		fontSystem.Initialize();
-		fontData.Initialize(L"Media\\Texture\\Font.dds");
-	}
-
-#if 1
-	{
-				
-		
-		D3D12_INPUT_ELEMENT_DESC inputElement[] = {
-			{ "POSITION",	0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "NORMAL",		0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "TEXCOORD",	0	,	DXGI_FORMAT_R32G32_FLOAT,		0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "VTX_COLOR",	0	,	DXGI_FORMAT_R32G32B32A32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0	},
-		};
-
-
-		GfxLib::InputLayout il;
-		il.Initialize(_countof(inputElement), inputElement);
-
-
-
-		char elemstr[] = { "POSITION" };
-
-		D3D12_INPUT_ELEMENT_DESC inputElement2[] = {
-			{ elemstr,	0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "NORMAL",		0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "TEXCOORD",	0	,	DXGI_FORMAT_R32G32_FLOAT,		0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "VTX_COLOR",	0	,	DXGI_FORMAT_R32G32B32A32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-		};
-
-		GfxLib::InputLayout il2;
-		il2.Initialize(_countof(inputElement2), inputElement2 );
-
-
-
-		//	ラスタライザステートの設定
-		D3D12_RASTERIZER_DESC descRS = {};
-
-		descRS.FillMode = D3D12_FILL_MODE_SOLID;
-		descRS.CullMode = D3D12_CULL_MODE_NONE;
-		descRS.FrontCounterClockwise = FALSE;
-		descRS.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
-		descRS.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
-		descRS.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
-		descRS.DepthClipEnable = TRUE;
-		descRS.MultisampleEnable = FALSE;
-		descRS.AntialiasedLineEnable = FALSE;
-		descRS.ForcedSampleCount = 0;
-		descRS.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
-
-		// レンダーターゲットのブレンド設定
-		D3D12_RENDER_TARGET_BLEND_DESC descRTBS = {
-			FALSE,	FALSE,
-			D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
-			D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
-			D3D12_LOGIC_OP_NOOP,
-			D3D12_COLOR_WRITE_ENABLE_ALL,
-		};
-
-		// ブレンドステートの設定
-		D3D12_BLEND_DESC descBS;
-		descBS.AlphaToCoverageEnable = FALSE;
-		descBS.IndependentBlendEnable = FALSE;
-		for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
-			descBS.RenderTarget[i] = descRTBS;
-		};
-
-		// パイプラインステートの設定
-		D3D12_GRAPHICS_PIPELINE_STATE_DESC	desc = {};
-
-		desc.InputLayout = { inputElement,_countof(inputElement) };
-		desc.pRootSignature		= rootSig.GetD3DRootSignature();
-		desc.VS					= vertexshader.GetD3D12ShaderBytecode();	//	TODO
-		desc.PS					= pixelshader.GetD3D12ShaderBytecode();
-		desc.RasterizerState	= descRS;
-		desc.BlendState			= descBS;
-		desc.DepthStencilState.DepthEnable = TRUE;
-		desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-		desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-		desc.DepthStencilState.StencilEnable = FALSE;
-		desc.SampleMask			= UINT_MAX;
-		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-		desc.NumRenderTargets	= 1;
-		desc.RTVFormats[0]		= DXGI_FORMAT_R8G8B8A8_UNORM;
-		desc.DSVFormat			= DXGI_FORMAT_D32_FLOAT;
-		desc.SampleDesc.Count	= 1;
-
-
-#ifndef ENABLE_ONTHEFLY_PSO
-		pipelineState.Initialize(desc);
-#endif
-
-		//	OnTheFly PSO
-		depthStencilState.Initialize(desc.DepthStencilState);
-
-		blendState.Initialize(descBS);
-
-		// AlphaBlend
-		descRTBS.BlendEnable = true;
-		descRTBS.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		descRTBS.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-
-		descBS.RenderTarget[0] = descRTBS;
-		blendState2.Initialize(descBS);
-
-
-		rasterizerState.Initialize(descRS);
-
-		inputLayout.Initialize(_countof(inputElement),inputElement);
-
-	}
-#endif
-
-#endif
 
 	QueryPerformanceCounter(&g_lastUpdateTime);
 
@@ -489,37 +138,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	cmdList.AllocateGpuBuffer(cpuAddress, 128, 16);
 	*/
 
+	g_pGfx->Finalize();
 
-
-	gfxCore.WaitGpuFinish();
-
-	fontData.Finalize();
-	fontSystem.Finalize();
-
-	swapChain.Finalize();
-	cmdList.Finalize();
-	//cmdList2.Finalize();
-	rootSig.Finalize();
-	idxBuff.Finalize();
-	vtxBuff.Finalize();
-	pipelineState.Finalize();
-	pixelshader.Finalize();
-	vertexshader.Finalize();
-	//constantBuffer2.Finalize();
-	//constantBuffer.Finalize();
-	depthStencil.Finalize();
-	texture2D.Finalize();
-	descHeap_Sampler.Finalize();
-	//descHeap_CBV.Finalize();
-	depthStencilState.Finalize();
-	rasterizerState.Finalize();
-	blendState.Finalize();
-	blendState2.Finalize();
-	inputLayout.Finalize();
-
-
-	gfxCore.Finalize();
-
+	delete g_pGfx;
+	g_pGfx = nullptr;
 
     return (int) msg.wParam;
 }
@@ -660,6 +282,437 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 void Update()
 {
+	g_pGfx->Update();
+}
+
+
+void Render()
+{
+
+	g_pGfx->Render();
+
+}
+
+
+bool	GFX::Initialize()
+{
+
+
+	if (!gfxCore.Initialize()) {
+		return FALSE;
+	}
+
+
+	// メイン メッセージ ループ:
+	/*
+	MSG msg;
+	while (GetMessage(&msg, nullptr, 0, 0))
+	{
+	if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
+	{
+	TranslateMessage(&msg);
+	DispatchMessage(&msg);
+	}
+	}
+	*/
+
+	/*{
+	D3D12_CPU_DESCRIPTOR_HANDLE	aHandle[32];
+
+	GfxLib::DescriptorAllocator* allocator = GfxLib::CoreSystem::GetInstance()->GetDescriptorAllocator();
+
+
+	for (uint32_t i = 0; i < _countof(aHandle); ++i) {
+
+	aHandle[i] = allocator->Allocate(GfxLib::DescriptorHeapType::RTV);
+
+	}
+
+
+	std::random_shuffle(aHandle, aHandle + _countof(aHandle)-1);
+
+	for (uint32_t i = 0; i < 8; ++i) {
+	allocator->Free(GfxLib::DescriptorHeapType::RTV, aHandle[i]);
+	}
+	for (uint32_t i = 0; i < 8; ++i) {
+	aHandle[i] = allocator->Allocate(GfxLib::DescriptorHeapType::RTV );
+	}
+
+
+	for (uint32_t i = 0; i < _countof(aHandle); ++i) {
+
+	allocator->Free(GfxLib::DescriptorHeapType::RTV, aHandle[i]);
+
+	}
+
+	int i;
+	i = 0;
+
+	}*/
+
+	cmdList.Initialize(&gfxCore.GetCommandQueue());
+	swapChain.Initialize(g_hWnd);
+
+
+#if 1
+	/*
+	http://www.project-asura.com/program/d3d12/d3d12_002.html
+	を参考にしたテストコード
+	*/
+	{
+		// Root Signature test
+		GfxLib::RootSignatureDesc	rootSigDesc;
+
+
+		//GfxLib::DESCRIPTOR_RANGE	range = { GfxLib::DescriptorRangeType::Cbv,1,0 };
+		//rootSigDesc.AddParam_DescriptorTable(&range, 1);
+		// 0 から始まる、一つのCBV
+		GfxLib::DESCRIPTOR_RANGE aCbvSrvRange[] = {
+			{ GfxLib::DescriptorRangeType::Cbv,1,0 },
+			{ GfxLib::DescriptorRangeType::Srv,1,0 },
+		};
+		rootSigDesc.AddParam_DescriptorTable(aCbvSrvRange, _countof(aCbvSrvRange));
+		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1,0 }, 1);
+
+		/*
+		rootSigDesc.AddParam_DescriptorTable(
+		std::array<GfxLib::DESCRIPTOR_RANGE,2>{
+		GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Cbv,1, 1 },
+		//GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Uav,1, 1 },
+		GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1, 1 },
+		//GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1, 0 }
+		}
+		);
+		//*/
+
+
+		rootSig.Initialize(rootSigDesc);
+	}
+
+	{
+		// サンプラのデスクリプタテーブル
+		descHeap_Sampler.InitializeSampler(1, false);
+
+		D3D12_SAMPLER_DESC	sampsDesc = {
+			D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+			0.f,
+			1,
+			D3D12_COMPARISON_FUNC_ALWAYS,
+			{ 0.f,0.f,0.f,0.f },
+			0,
+			13,
+		};
+		gfxCore.GetD3DDevice()->CreateSampler(&sampsDesc, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
+
+
+		//descHeap_CBV.InitializeCBV_SRV_UAV(10,false);
+	}
+
+	{
+		// RenderTarget
+
+		//GfxLib::RenderTarget renderTarget;
+
+		//bool b = renderTarget.Initialize(GfxLib::Format::R8G8B8A8_UNORM, 128, 128, 1, true);
+
+
+		depthStencil.Initialize(GfxLib::Format::D32_FLOAT, swapChain.GetWidth(), swapChain.GetHeight(), 1, true);
+
+
+	}
+
+
+#if 1
+
+	{
+		//	Create Vertex Buffer and index buffer
+		struct Vertex {
+			DirectX::XMFLOAT3	Position;
+			DirectX::XMFLOAT3	Normal;
+			DirectX::XMFLOAT2	TexCoord;
+			DirectX::XMFLOAT4	Color;
+		};
+
+		Vertex vertices[] = {
+			{ { 0.f,1.f,0.f },{ 0.f,0.f,-1.f },{ 0.5f,0.1f },{ 1.f,1.f,1.f,1.f }, },
+			{ { 1.f,-1.f,0.f },{ 0.f,0.f,-1.f },{ 0.1f,0.9f },{ 1.f,1.f,1.f,1.f }, },
+			{ { -1.f,-1.f,0.f },{ 0.f,0.f,-1.f },{ 0.9f,0.9f },{ 1.f,1.f,1.f,1.f }, },
+
+		};
+
+
+
+		vtxBuff.Initialize(vertices, sizeof(Vertex), _countof(vertices));
+
+
+		uint16_t indices[] = {
+			0,1,2
+		};
+
+		idxBuff.Initialize(indices, sizeof(indices), GfxLib::Format::R16_UINT);
+
+
+	}
+#endif
+	{
+		// Create Texture2D
+
+
+		/*
+		bool b = texture2D.Initialize(GfxLib::Format::R8G8B8A8_UNORM, 128, 128, 1);
+
+
+		if (b) {
+
+		uint32_t  bits[128][128];
+
+
+		for (uint32_t y = 0; y < _countof(bits); ++y) {
+		for (uint32_t x = 0; x < _countof(bits[0]); ++x) {
+
+		bits[y][x] = ( 0xff << 24 ) | ( 0xff << 16 ) | ( (x*255/128) << 8 ) | ( (y*255/128) );
+
+		}
+		}
+
+		texture2D.WriteToSubresource(0, nullptr, bits, 4 * 128, 0);
+
+
+		}
+
+		*/
+
+		D3D12_SUBRESOURCE_DATA	subData;
+
+
+		uint32_t  bits[128][128];
+
+
+		for (uint32_t y = 0; y < _countof(bits); ++y) {
+			for (uint32_t x = 0; x < _countof(bits[0]); ++x) {
+
+				bits[y][x] = (0xff << 24) | (0xff << 16) | ((x * 255 / 128) << 8) | ((y * 255 / 128));
+
+			}
+		}
+		subData.pData = bits;
+		subData.RowPitch = sizeof(bits[0]);
+		subData.SlicePitch = 0;
+
+
+		//bool b = texture2D.Initialize(GfxLib::Format::R8G8B8A8_UNORM, 128, 128, 1, 1, &subData);
+		bool b = texture2D.InitializeFromFile(L"fire.dds");
+
+		b = b;
+
+
+	}
+
+
+	{
+
+		pixelshader.CreateFromFile(L"../x64/debug/SimplePS.cso");
+		vertexshader.CreateFromFile(L"../x64/debug/SimpleVS.cso");
+
+
+		/*
+		constantBuffer.Initialize(sizeof(CBData));
+		constantBuffer2.Initialize(sizeof(CBData));
+
+		CBData cbdata;
+
+		cbdata.world = XMMatrixIdentity();
+		cbdata.view = XMMatrixTranspose( XMMatrixLookAtLH( XMVectorSet(0.f,0.f,5.f,0.f ) , XMVectorZero(), XMVectorSet(0.f,1.f,0.f,0.f) ) );
+		cbdata.proj = XMMatrixTranspose( XMMatrixPerspectiveFovLH(3.14159f / 4.f, 1.f, 0.1f, 100.f) );
+
+		constantBuffer.SetData(&cbdata, sizeof(cbdata));
+
+
+		cbdata.world = XMMatrixTranspose( XMMatrixRotationY( XM_PI / 4 ) );
+
+		constantBuffer2.SetData(&cbdata, sizeof(cbdata));
+		*/
+	}
+
+
+
+	{
+		// CBV - SRV  DescriptorTable
+
+		//descHeap_CbvSrv.InitializeCBV_SRV_UAV(2);
+
+		// 0番目にCBV , 1番目にSRV
+		//gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1, descHeap_CbvSrv.GetCPUDescriptorHandleByIndex(0), constantBuffer.GetCbvDescHandle() , D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
+		//gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1, descHeap_CbvSrv.GetCPUDescriptorHandleByIndex(1), texture2D.GetSrvDescHandle() , D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
+
+
+	}
+	{
+
+		fontSystem.Initialize();
+		fontData.Initialize(L"Media\\Texture\\Font.dds");
+	}
+
+#if 1
+	{
+
+
+		D3D12_INPUT_ELEMENT_DESC inputElement[] = {
+			{ "POSITION",	0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+			{ "NORMAL",		0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+			{ "TEXCOORD",	0	,	DXGI_FORMAT_R32G32_FLOAT,		0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+			{ "VTX_COLOR",	0	,	DXGI_FORMAT_R32G32B32A32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+		};
+
+
+		GfxLib::InputLayout il;
+		il.Initialize(_countof(inputElement), inputElement);
+
+
+
+		char elemstr[] = { "POSITION" };
+
+		D3D12_INPUT_ELEMENT_DESC inputElement2[] = {
+			{ elemstr,	0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+			{ "NORMAL",		0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+			{ "TEXCOORD",	0	,	DXGI_FORMAT_R32G32_FLOAT,		0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+			{ "VTX_COLOR",	0	,	DXGI_FORMAT_R32G32B32A32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+		};
+
+		GfxLib::InputLayout il2;
+		il2.Initialize(_countof(inputElement2), inputElement2);
+
+
+
+		//	ラスタライザステートの設定
+		D3D12_RASTERIZER_DESC descRS = {};
+
+		descRS.FillMode = D3D12_FILL_MODE_SOLID;
+		descRS.CullMode = D3D12_CULL_MODE_NONE;
+		descRS.FrontCounterClockwise = FALSE;
+		descRS.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+		descRS.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+		descRS.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+		descRS.DepthClipEnable = TRUE;
+		descRS.MultisampleEnable = FALSE;
+		descRS.AntialiasedLineEnable = FALSE;
+		descRS.ForcedSampleCount = 0;
+		descRS.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+		// レンダーターゲットのブレンド設定
+		D3D12_RENDER_TARGET_BLEND_DESC descRTBS = {
+			FALSE,	FALSE,
+			D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
+			D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
+			D3D12_LOGIC_OP_NOOP,
+			D3D12_COLOR_WRITE_ENABLE_ALL,
+		};
+
+		// ブレンドステートの設定
+		D3D12_BLEND_DESC descBS;
+		descBS.AlphaToCoverageEnable = FALSE;
+		descBS.IndependentBlendEnable = FALSE;
+		for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+			descBS.RenderTarget[i] = descRTBS;
+		};
+
+		// パイプラインステートの設定
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC	desc = {};
+
+		desc.InputLayout = { inputElement,_countof(inputElement) };
+		desc.pRootSignature = rootSig.GetD3DRootSignature();
+		desc.VS = vertexshader.GetD3D12ShaderBytecode();	//	TODO
+		desc.PS = pixelshader.GetD3D12ShaderBytecode();
+		desc.RasterizerState = descRS;
+		desc.BlendState = descBS;
+		desc.DepthStencilState.DepthEnable = TRUE;
+		desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+		desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		desc.DepthStencilState.StencilEnable = FALSE;
+		desc.SampleMask = UINT_MAX;
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		desc.NumRenderTargets = 1;
+		desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+		desc.SampleDesc.Count = 1;
+
+
+#ifndef ENABLE_ONTHEFLY_PSO
+		pipelineState.Initialize(desc);
+#endif
+
+		//	OnTheFly PSO
+		depthStencilState.Initialize(desc.DepthStencilState);
+
+		blendState.Initialize(descBS);
+
+		// AlphaBlend
+		descRTBS.BlendEnable = true;
+		descRTBS.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		descRTBS.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+
+		descBS.RenderTarget[0] = descRTBS;
+		blendState2.Initialize(descBS);
+
+
+		rasterizerState.Initialize(descRS);
+
+		inputLayout.Initialize(_countof(inputElement), inputElement);
+
+	}
+#endif
+
+#endif
+
+	return true;
+
+}
+
+
+void	GFX::Finalize()
+{
+
+
+	gfxCore.WaitGpuFinish();
+
+	fontData.Finalize();
+	fontSystem.Finalize();
+
+	swapChain.Finalize();
+	cmdList.Finalize();
+	//cmdList2.Finalize();
+	rootSig.Finalize();
+	idxBuff.Finalize();
+	vtxBuff.Finalize();
+	pipelineState.Finalize();
+	pixelshader.Finalize();
+	vertexshader.Finalize();
+	//constantBuffer2.Finalize();
+	//constantBuffer.Finalize();
+	depthStencil.Finalize();
+	texture2D.Finalize();
+	descHeap_Sampler.Finalize();
+	//descHeap_CBV.Finalize();
+	depthStencilState.Finalize();
+	rasterizerState.Finalize();
+	blendState.Finalize();
+	blendState2.Finalize();
+	inputLayout.Finalize();
+
+
+	gfxCore.Finalize();
+
+
+	return ;
+}
+
+
+void	GFX::Update()
+{
+
 	LARGE_INTEGER nowTime;
 	QueryPerformanceCounter(&nowTime);
 
@@ -681,9 +734,9 @@ void Update()
 
 }
 
-
-void Render()
+void	GFX::Render()
 {
+
 
 	if (gfxCore.Begin()) {
 
@@ -719,7 +772,7 @@ void Render()
 			// RenderTargetおよび、DepthStencilのクリア
 			const float clearColorF[] = { 0.f , 1.f , 0.5f , 1.f };
 			d3dCmdList->ClearRenderTargetView(rt->GetRTVDescriptorHandle(), clearColorF, 0, nullptr);
-			d3dCmdList->ClearDepthStencilView(depthStencil.GetDSVDescriptorHandle(), D3D12_CLEAR_FLAG_DEPTH , GFX_DEFAULT_DEPTH_CLEAR_VALUE, 0, 0 , nullptr);
+			d3dCmdList->ClearDepthStencilView(depthStencil.GetDSVDescriptorHandle(), D3D12_CLEAR_FLAG_DEPTH, GFX_DEFAULT_DEPTH_CLEAR_VALUE, 0, 0, nullptr);
 
 			/*
 			uint32_t descHeapStartIndex = 0;
@@ -728,13 +781,13 @@ void Render()
 			// CopyHandle
 			// todo: Copy付きRequire
 			gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1,
-				cbvsrvHeap->GetCPUDescriptorHandleByIndex(descHeapStartIndex),
-				constantBuffer.GetCbvDescHandle(), 
-				D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+			cbvsrvHeap->GetCPUDescriptorHandleByIndex(descHeapStartIndex),
+			constantBuffer.GetCbvDescHandle(),
+			D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 			gfxCore.GetD3DDevice()->CopyDescriptorsSimple(1,
-				cbvsrvHeap->GetCPUDescriptorHandleByIndex(descHeapStartIndex+1),
-				texture2D.GetSrvDescHandle(),
-				D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+			cbvsrvHeap->GetCPUDescriptorHandleByIndex(descHeapStartIndex+1),
+			texture2D.GetSrvDescHandle(),
+			D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 			*/
 			uint32_t descHeapStartIndex = 0;
 
@@ -751,7 +804,7 @@ void Render()
 #if 0
 				void* cpuAddr = nullptr;
 				D3D12_GPU_VIRTUAL_ADDRESS gpuAddr = cmdList.AllocateGpuBuffer(cpuAddr,
-					GfxLib::UpperBounds((uint32_t)sizeof(CBData),256) , D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+					GfxLib::UpperBounds((uint32_t)sizeof(CBData), 256), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 
 
 				memcpy(cpuAddr, &cbdata, sizeof(CBData));
@@ -759,7 +812,7 @@ void Render()
 				descBuff.SetConstantBuffer(0, gpuAddr, sizeof(CBData));
 #endif
 
-				descBuff.SetConstantBuffer( 0, &cbdata, sizeof(CBData));
+				descBuff.SetConstantBuffer(0, &cbdata, sizeof(CBData));
 			}
 
 
@@ -785,10 +838,10 @@ void Render()
 			cmdList.SetRootSignature(&rootSig);
 
 			// デスクリプタテーブルを設定する
-			d3dCmdList->SetDescriptorHeaps( _countof(heap) , heap);
-			d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle() );
+			d3dCmdList->SetDescriptorHeaps(_countof(heap), heap);
+			d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
 			//d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
-			d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle() );
+			d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
 
 			//
 			//d3dCmdList->SetGraphicsRootShaderResourceView(2, texture2D.GetD3DResource()->GetGPUVirtualAddress());
@@ -800,18 +853,18 @@ void Render()
 			cmdList.OMSetBlendState(&blendState);
 			cmdList.RSSetState(&rasterizerState);
 			cmdList.IASetInputLayout(&inputLayout);
-			cmdList.SetPrimitiveTopologyType(D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE); 
+			cmdList.SetPrimitiveTopologyType(D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
 
 			cmdList.PSSetShader(&pixelshader);
 			cmdList.VSSetShader(&vertexshader);
 
 			cmdList.FlushPipeline();
-			
+
 
 #else
 
 			d3dCmdList->SetPipelineState(pipelineState.GetD3DPipelineState());
-			
+
 
 #endif
 
@@ -842,8 +895,8 @@ void Render()
 
 
 					CBData cbdata;
-					
-					cbdata.world = XMMatrixTranspose(XMMatrixRotationY(XM_PI / 4 * g_accTime ));
+
+					cbdata.world = XMMatrixTranspose(XMMatrixRotationY(XM_PI / 4 * g_accTime));
 					cbdata.view = XMMatrixTranspose(XMMatrixLookAtLH(XMVectorSet(0.f, 0.f, 5.f, 0.f), XMVectorZero(), XMVectorSet(0.f, 1.f, 0.f, 0.f)));
 					cbdata.proj = XMMatrixTranspose(XMMatrixPerspectiveFovLH(3.14159f / 4.f, 1.f, 0.1f, 100.f));
 
@@ -864,7 +917,7 @@ void Render()
 					sampsBuff.GetD3DDescriptorHeap() ,
 				};
 
-				d3dCmdList->SetDescriptorHeaps(_countof(heap) , heap );
+				d3dCmdList->SetDescriptorHeaps(_countof(heap), heap);
 				d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
 				//d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
 				d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
@@ -874,11 +927,11 @@ void Render()
 				cmdList.FlushPipeline();
 
 				d3dCmdList->DrawInstanced(3, 1, 0, 0);
-				
+
 			}
 
 			{
-				GfxLib::FontRenderer fontRender(&cmdList,&fontSystem,&fontData,vp);
+				GfxLib::FontRenderer fontRender(&cmdList, &fontSystem, &fontData, vp);
 
 
 				// Todo : フォント内部の処理とする
@@ -910,9 +963,9 @@ void Render()
 
 		// コマンドの書き込みを終了する
 		//d3dCmdList->Close();
-		
+
 		//cmdList2.GetD3DCommandList()->Close();
-		
+
 		// コマンドリストをキューイング
 		//ID3D12CommandList *c = d3dCmdList;
 		//gfxCore.GetCommandQueue().GetD3DCommandQueue()->ExecuteCommandLists(1, &c);
@@ -920,12 +973,14 @@ void Render()
 		gfxCore.GetCommandQueue().ExecuteCommandLists(1, &c);
 
 		//	プリゼンテーション
-		swapChain.Present( 1 , 0 );
+		swapChain.Present(1, 0);
 
 
 		gfxCore.End();
 	}
 
 
-
 }
+
+
+
