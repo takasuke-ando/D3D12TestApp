@@ -751,6 +751,9 @@ void	GFX::Render()
 			//
 
 
+			cmdList.ReserveDescriptorBuffers(32, 32);
+
+
 			//auto handle = swapChain.GetCurrentRenderTargetHandle();
 			//d3dCmdList->OMSetRenderTargets(1, &handle, false, &depthStencil.GetDSVDescriptorHandle() );	//	MEMO 3つめの引数で、連続したハンドルヒープを使うことが可能
 			GfxLib::RenderTarget *rt = swapChain.GetCurrentRenderTarget();
@@ -771,8 +774,8 @@ void	GFX::Render()
 
 			// RenderTargetおよび、DepthStencilのクリア
 			const float clearColorF[] = { 0.f , 1.f , 0.5f , 1.f };
-			d3dCmdList->ClearRenderTargetView(rt->GetRTVDescriptorHandle(), clearColorF, 0, nullptr);
-			d3dCmdList->ClearDepthStencilView(depthStencil.GetDSVDescriptorHandle(), D3D12_CLEAR_FLAG_DEPTH, GFX_DEFAULT_DEPTH_CLEAR_VALUE, 0, 0, nullptr);
+			cmdList.ClearRenderTargetView(*rt, clearColorF, 0, nullptr);
+			cmdList.ClearDepthStencilView(depthStencil, D3D12_CLEAR_FLAG_DEPTH, GFX_DEFAULT_DEPTH_CLEAR_VALUE, 0, 0, nullptr);
 
 			/*
 			uint32_t descHeapStartIndex = 0;
@@ -825,23 +828,26 @@ void	GFX::Render()
 
 			sampsBuff.CopyHandle(0, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
 
-
+			/*
 			// Rootsignatureおよび、DescriptorHeap対応
 			ID3D12DescriptorHeap *heap[] = {
 				//cbvsrvHeap->GetD3DDescriptorHeap() ,
 				descBuff.GetD3DDescriptorHeap(),
 				sampsBuff.GetD3DDescriptorHeap() ,
 			};
+			*/
 			//d3dCmdList->SetDescriptorHeaps(1, &heap );
 
 			//d3dCmdList->SetGraphicsRootSignature(rootSig.GetD3DRootSignature());
 			cmdList.SetRootSignature(&rootSig);
 
 			// デスクリプタテーブルを設定する
-			d3dCmdList->SetDescriptorHeaps(_countof(heap), heap);
-			d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
-			//d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
-			d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
+			//d3dCmdList->SetDescriptorHeaps(_countof(heap), heap);
+
+			//d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
+			//d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
+			cmdList.SetGraphicsRootDescriptorTable(0, descBuff);
+			cmdList.SetGraphicsRootDescriptorTable(1, sampsBuff);
 
 			//
 			//d3dCmdList->SetGraphicsRootShaderResourceView(2, texture2D.GetD3DResource()->GetGPUVirtualAddress());
@@ -869,9 +875,9 @@ void	GFX::Render()
 #endif
 
 			// 頂点バッファの設定、プリミティブトポロジの設定
-			d3dCmdList->IASetVertexBuffers(0, 1, &vtxBuff.GetVertexBufferView());
-			d3dCmdList->IASetIndexBuffer(&idxBuff.GetIndexBufferView());
-			d3dCmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			cmdList.IASetVertexBuffers(0, 1, &vtxBuff.GetVertexBufferView());
+			cmdList.IASetIndexBuffer(&idxBuff.GetIndexBufferView());
+			cmdList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			//d3dCmdList->DrawInstanced(3, 1, 0, 0);
 
 
@@ -912,21 +918,26 @@ void	GFX::Render()
 				GfxLib::DescriptorBuffer sampsBuff = cmdList.AllocateDescriptorBuffer_Sampler(1);
 				sampsBuff.CopyHandle(0, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
 
+				/*
 				ID3D12DescriptorHeap *heap[] = {
 					descBuff.GetD3DDescriptorHeap() ,
 					sampsBuff.GetD3DDescriptorHeap() ,
 				};
+				*/
 
-				d3dCmdList->SetDescriptorHeaps(_countof(heap), heap);
-				d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
-				//d3dCmdList->SetGraphicsRootDescriptorTable(1, descHeap_Sampler.GetD3DDescriptorHeap()->GetGPUDescriptorHandleForHeapStart());
-				d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
+				//d3dCmdList->SetDescriptorHeaps(_countof(heap), heap);
+
+				//d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
+				//d3dCmdList->SetGraphicsRootDescriptorTable(1, sampsBuff.GetGPUDescriptorHandle());
+
+				cmdList.SetGraphicsRootDescriptorTable(0, descBuff);
+				cmdList.SetGraphicsRootDescriptorTable(1, sampsBuff);
 
 
 				cmdList.OMSetBlendState(&blendState);
-				cmdList.FlushPipeline();
+				//cmdList.FlushPipeline();
 
-				d3dCmdList->DrawInstanced(3, 1, 0, 0);
+				cmdList.DrawInstanced(3, 1, 0, 0);
 
 			}
 
@@ -939,7 +950,7 @@ void	GFX::Render()
 				descBuff.CopyHandle(1, fontData.GetTexture().GetSrvDescHandle());
 
 
-				d3dCmdList->SetGraphicsRootDescriptorTable(0, descBuff.GetGPUDescriptorHandle());
+				cmdList.SetGraphicsRootDescriptorTable(0, descBuff);
 
 
 				fontRender.Begin();
