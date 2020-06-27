@@ -452,7 +452,7 @@ bool	GFX::Initialize()
 			0,1,2
 		};
 
-		idxBuff.Initialize(indices, sizeof(indices), GfxLib::Format::R16_UINT);
+		idxBuff.Initialize(indices, GfxLib::Format::R16_UINT , _countof(indices));
 
 
 	}
