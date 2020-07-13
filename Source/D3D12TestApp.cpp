@@ -22,6 +22,25 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 HWND	g_hWnd;
 
+
+
+struct Viewport
+{
+	float left;
+	float top;
+	float right;
+	float bottom;
+};
+
+struct RayGenConstantBuffer
+{
+	Viewport viewport;
+	Viewport stencil;
+};
+
+struct Vertex { float v1, v2, v3; };
+
+
 struct GFX{
 	GfxLib::CoreSystem		gfxCore;
 	GfxLib::SwapChain		swapChain;
@@ -48,11 +67,35 @@ struct GFX{
 	GfxLib::FontData		fontData;
 
 
+	//	Ray Tracing
+	GfxLib::RootSignature	globalRootSig;
+	GfxLib::RootSignature	localRootSig;
+	RayGenConstantBuffer	m_rayGenCB;
+	GfxLib::Shader			m_rtShaderLib;
+	GfxLib::StateObject		m_rtStateObject;
+	GfxLib::RtGeometry		m_rtGeometry;
+	GfxLib::Texture2D		m_rtOutput;
+	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
+	GfxLib::BottomLevelAccelerationStructure	m_rtBLAS;
+	GfxLib::Buffer			m_rtScratch;
+
+	const wchar_t* c_hitGroupName = L"MyHitGroup";
+	const wchar_t* c_raygenShaderName = L"MyRaygenShader";
+	const wchar_t* c_closestHitShaderName = L"MyClosestHitShader";
+	const wchar_t* c_missShaderName = L"MyMissShader";
+
 	bool	Initialize();
 	void	Finalize();
 
 	void	Update();
 	void	Render();
+
+
+	void	CreateRayTracingRootSignature();
+	void	CreateRayTracingPipelineStateObject();
+	void	CreateRayTracingGeometry();
+	void	BuildAccelerationStructures();
+	void	CreateRayTracingOutputResource();	//	出力リソースの作成
 };
 
 
@@ -374,6 +417,8 @@ bool	GFX::Initialize()
 		rootSigDesc.AddParam_DescriptorTable(aCbvSrvRange, _countof(aCbvSrvRange));
 		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1,0 }, 1);
 
+		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
 		/*
 		rootSigDesc.AddParam_DescriptorTable(
 		std::array<GfxLib::DESCRIPTOR_RANGE,2>{
@@ -667,7 +712,214 @@ bool	GFX::Initialize()
 
 #endif
 
+
+
+	{
+	// RayTracing
+
+		m_rtShaderLib.CreateFromFile(L"../x64/debug/RayTracing.cso");
+
+		CreateRayTracingRootSignature();
+		
+		CreateRayTracingPipelineStateObject();
+
+		CreateRayTracingGeometry();
+
+		BuildAccelerationStructures();
+
+		CreateRayTracingOutputResource();
+	}
+
 	return true;
+
+}
+
+
+
+void	GFX::CreateRayTracingRootSignature()
+{
+
+
+		GfxLib::RootSignatureDesc	rootSigDesc;
+
+
+		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Uav,1,0 }, 1);
+		rootSigDesc.AddParam_Srv(0);
+
+		globalRootSig.Initialize(rootSigDesc);
+
+		rootSigDesc.Clear();
+
+		
+
+		rootSigDesc.AddParam_32BitConstants(sizeof(m_rayGenCB)/sizeof(uint32_t),0);
+		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+		localRootSig.Initialize(rootSigDesc);
+
+		rootSigDesc.Clear();
+
+}
+
+
+void	GFX::CreateRayTracingPipelineStateObject()
+{
+
+	GfxLib::RtPipelineStateDesc	stateDesc;
+
+
+	{
+		auto *subobj = stateDesc.CreateSubObject<GfxLib::PipelineState_DxilLibrary>();
+
+		D3D12_SHADER_BYTECODE dxillib = m_rtShaderLib.GetD3D12ShaderBytecode();
+		subobj->SetDXILLibrary(dxillib);
+		subobj->AddExport(c_raygenShaderName);
+		subobj->AddExport(c_closestHitShaderName);
+		subobj->AddExport(c_missShaderName);
+	}
+
+	{
+		/*
+			HitGroupはAnyHit、ClosestHit、ClosestHitで同じグループに入る
+		*/
+
+		auto* hitGroup = stateDesc.CreateSubObject<GfxLib::PipelineState_HitGroup>();
+
+		hitGroup->SetClosestHitShaderImport(c_closestHitShaderName);
+		hitGroup->SetHitGroupExport(c_hitGroupName);
+		hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
+
+	}
+
+
+	{
+
+
+		auto* shaderConfig = stateDesc.CreateSubObject<GfxLib::PipelineState_RaytracingShaderConfig>();
+
+		UINT payloadSize = 4 * sizeof(float);   // float4 color
+		UINT attributeSize = 2 * sizeof(float); // float2 barycentrics
+		shaderConfig->Config(payloadSize, attributeSize);
+	}
+
+	{
+		//	LocalRootSignature Associate
+
+		auto localRootSignature = stateDesc.CreateSubObject<GfxLib::PipelineState_LocalRootSignature>();
+		localRootSignature->SetRootSignature(localRootSig.GetD3DRootSignature());
+		// Shader association
+		auto rootSignatureAssociation = stateDesc.CreateSubObject<GfxLib::PipelineState_SubobjectToExportsAssociation>();
+		rootSignatureAssociation->SetRootSignature(localRootSignature);
+		rootSignatureAssociation->AddExport(c_raygenShaderName);
+	}
+
+	{
+		//	Global Root Signature
+
+		auto globalRootSignature = stateDesc.CreateSubObject<GfxLib::PipelineState_GlobalRootSignature>();
+		globalRootSignature->SetRootSignature(globalRootSig.GetD3DRootSignature());
+	}
+
+	{
+		// Pipeline Config
+		auto pipelineConfig = stateDesc.CreateSubObject<GfxLib::PipelineState_PipelineConfig>();
+		// PERFOMANCE TIP: Set max recursion depth as low as needed 
+		// as drivers may apply optimization strategies for low recursion depths. 
+		UINT maxRecursionDepth = 1; // ~ primary rays only. 
+		pipelineConfig->Config(maxRecursionDepth);
+
+	}
+
+	{
+		//	
+
+
+		stateDesc.Resolve();
+
+
+		D3D12_STATE_OBJECT_DESC desc = {};
+
+		desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+		desc.pSubobjects = stateDesc.GetStateSubObjects();
+		desc.NumSubobjects = stateDesc.GetNumStateSubObjects();
+
+
+		m_rtStateObject.Initialize(desc);
+
+
+	}
+
+}
+
+
+void	GFX::CreateRayTracingGeometry()
+{
+
+	uint16_t indices[] =
+	{
+		0, 1, 2
+	};
+
+	float depthValue = 1.0;
+	float offset = 0.7f;
+	Vertex vertices[] =
+	{
+		// The sample raytraces in screen space coordinates.
+		// Since DirectX screen space coordinates are right handed (i.e. Y axis points down).
+		// Define the vertices in counter clockwise order ~ clockwise in left handed.
+		{ 0, -offset, depthValue },
+		{ -offset, offset, depthValue },
+		{ offset, offset, depthValue }
+	};
+
+	m_rtGeometry.Initialize(vertices, sizeof(Vertex), _countof(vertices), indices , GfxLib::Format::R16_UINT, _countof(indices));
+
+}
+
+
+
+void	GFX::BuildAccelerationStructures()
+{
+
+	m_rtBLAS.Initialize(&m_rtGeometry, 1);
+
+	GfxLib::BottomLevelAccelerationStructure* tlas[] = {
+		&m_rtBLAS,
+	};
+	m_rtTLAS.Initialize(tlas, _countof(tlas));
+
+
+	size_t scratchsize = std::max( m_rtBLAS.GetScratchDataSizeInBytes(), m_rtTLAS.GetScratchDataSizeInBytes() );
+
+
+	m_rtScratch.Initialize(scratchsize,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS , D3D12_RESOURCE_STATE_UNORDERED_ACCESS );
+
+	auto* coreSystem = GfxLib::CoreSystem::GetInstance();
+	auto* cmdList = coreSystem->GetResourceInitCommandList();
+
+
+	//*
+	// ASのビルド
+	m_rtBLAS.Build(*cmdList, &m_rtScratch);
+
+	cmdList->ResourceUavBarrier(&m_rtScratch);
+
+	m_rtTLAS.Build(*cmdList,&m_rtScratch);
+
+
+	coreSystem->FlushResourceInitCommandList();
+	coreSystem->WaitGpuFinish();
+	//*/
+
+}
+
+
+
+void	GFX::CreateRayTracingOutputResource()
+{
+
+	m_rtOutput.InitializeUAV(GfxLib::Format::R8G8B8A8_UNORM,swapChain.GetWidth(),swapChain.GetHeight(),1);
+
 
 }
 
@@ -701,6 +953,18 @@ void	GFX::Finalize()
 	blendState.Finalize();
 	blendState2.Finalize();
 	inputLayout.Finalize();
+
+
+
+	globalRootSig.Finalize();
+	localRootSig.Finalize();
+	m_rtShaderLib.Finalize();
+	m_rtStateObject.Finalize();
+	m_rtGeometry.Finalize();
+	m_rtOutput.Finalize();
+	m_rtBLAS.Finalize();
+	m_rtTLAS.Finalize();
+	m_rtScratch.Finalize();
 
 
 	gfxCore.Finalize();
