@@ -22,7 +22,20 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 HWND	g_hWnd;
 
+namespace GlobalRootSignatureParams {
+	enum Value {
+		OutputViewSlot = 0,
+		AccelerationStructureSlot,
+		Count
+	};
+}
 
+namespace LocalRootSignatureParams {
+	enum Value {
+		ViewportConstantSlot = 0,
+		Count
+	};
+}
 
 struct Viewport
 {
@@ -89,6 +102,8 @@ struct GFX{
 
 	void	Update();
 	void	Render();
+
+	void	DoRayTracing(GfxLib::GraphicsCommandList &cmdList);
 
 
 	void	CreateRayTracingRootSignature();
@@ -481,20 +496,27 @@ bool	GFX::Initialize()
 			DirectX::XMFLOAT4	Color;
 		};
 
+		/*
 		Vertex vertices[] = {
 			{ { 0.f,1.f,0.f },{ 0.f,0.f,-1.f },{ 0.5f,0.1f },{ 1.f,1.f,1.f,1.f }, },
 			{ { 1.f,-1.f,0.f },{ 0.f,0.f,-1.f },{ 0.1f,0.9f },{ 1.f,1.f,1.f,1.f }, },
 			{ { -1.f,-1.f,0.f },{ 0.f,0.f,-1.f },{ 0.9f,0.9f },{ 1.f,1.f,1.f,1.f }, },
-
 		};
+		*/
 
+		Vertex vertices[] = {
+			{ { 0.f,0.f,0.f },{ 0.f,0.f,-1.f },{ 0.f,0.f },{ 1.f,1.f,1.f,1.f }, },
+			{ { 1.f,0.f,0.f },{ 0.f,0.f,-1.f },{ 1.f,0.f },{ 1.f,1.f,1.f,1.f }, },
+			{ { 0.f,1.f,0.f },{ 0.f,0.f,-1.f },{ 0.f,1.f },{ 1.f,1.f,1.f,1.f }, },
+			{ { 1.f,1.f,0.f },{ 0.f,0.f,-1.f },{ 1.f,1.f },{ 1.f,1.f,1.f,1.f }, },
+		};
 
 
 		vtxBuff.Initialize(vertices, sizeof(Vertex), _countof(vertices));
 
 
 		uint16_t indices[] = {
-			0,1,2
+			0,1,2,1,2,3
 		};
 
 		idxBuff.Initialize(indices, GfxLib::Format::R16_UINT , _countof(indices));
@@ -718,6 +740,10 @@ bool	GFX::Initialize()
 	// RayTracing
 
 		m_rtShaderLib.CreateFromFile(L"../x64/debug/RayTracing.cso");
+
+		float border = 0.1f;
+		m_rayGenCB.viewport = { -1.0f, -1.0f, 1.0f, 1.0f };
+		m_rayGenCB.stencil = { -1.0f+border, -1.0f+border, 1.0f-border, 1.0f-border };
 
 		CreateRayTracingRootSignature();
 		
@@ -1068,16 +1094,7 @@ void	GFX::Render()
 				cbdata.world = XMMatrixIdentity();
 				cbdata.view = XMMatrixTranspose(XMMatrixLookAtLH(XMVectorSet(0.f, 0.f, 5.f, 0.f), XMVectorZero(), XMVectorSet(0.f, 1.f, 0.f, 0.f)));
 				cbdata.proj = XMMatrixTranspose(XMMatrixPerspectiveFovLH(3.14159f / 4.f, 1.f, 0.1f, 100.f));
-#if 0
-				void* cpuAddr = nullptr;
-				D3D12_GPU_VIRTUAL_ADDRESS gpuAddr = cmdList.AllocateGpuBuffer(cpuAddr,
-					GfxLib::UpperBounds((uint32_t)sizeof(CBData), 256), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 
-
-				memcpy(cpuAddr, &cbdata, sizeof(CBData));
-
-				descBuff.SetConstantBuffer(0, gpuAddr, sizeof(CBData));
-#endif
 
 				descBuff.SetConstantBuffer(0, &cbdata, sizeof(CBData));
 			}
@@ -1159,25 +1176,27 @@ void	GFX::Render()
 
 
 				{
-					//void* cpuAddr = nullptr;
-					//D3D12_GPU_VIRTUAL_ADDRESS gpuAddr = cmdList.AllocateGpuBuffer(cpuAddr,
-					//	GfxLib::UpperBounds((uint32_t)sizeof(CBData), 256), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-
 
 					CBData cbdata;
 
+					/*
 					cbdata.world = XMMatrixTranspose(XMMatrixRotationY(XM_PI / 4 * g_accTime));
 					cbdata.view = XMMatrixTranspose(XMMatrixLookAtLH(XMVectorSet(0.f, 0.f, 5.f, 0.f), XMVectorZero(), XMVectorSet(0.f, 1.f, 0.f, 0.f)));
 					cbdata.proj = XMMatrixTranspose(XMMatrixPerspectiveFovLH(3.14159f / 4.f, 1.f, 0.1f, 100.f));
+					*/
+
+					cbdata.world = XMMatrixIdentity();
+					cbdata.view = XMMatrixIdentity();
+					//cbdata.proj = XMMatrixIdentity();
+					cbdata.proj = XMMatrixTranspose(XMMatrixOrthographicOffCenterLH(0.f,1.f,1.f,0.f,0.f,1.f));
 
 
-					//memcpy(cpuAddr, &cbdata, sizeof(CBData));
-
-					//descBuff.SetConstantBuffer(0, gpuAddr, sizeof(CBData));
 					descBuff.SetConstantBuffer(0, &cbdata, sizeof(cbdata));
 				}
 
-				descBuff.CopyHandle(1, texture2D.GetSrvDescHandle());
+				// Raytracing Output
+				//descBuff.CopyHandle(1, texture2D.GetSrvDescHandle());
+				descBuff.CopyHandle(1, m_rtOutput.GetSrvDescHandle());
 
 				GfxLib::DescriptorBuffer sampsBuff = cmdList.AllocateDescriptorBuffer_Sampler(1);
 				sampsBuff.CopyHandle(0, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
@@ -1201,9 +1220,20 @@ void	GFX::Render()
 				cmdList.OMSetBlendState(&blendState);
 				//cmdList.FlushPipeline();
 
-				cmdList.DrawInstanced(3, 1, 0, 0);
+				cmdList.DrawIndexedInstanced(6, 1, 0, 0, 0);
 
 			}
+
+
+			{
+				//	TrayTracing
+
+
+				DoRayTracing(cmdList);
+
+
+			}
+
 
 			{
 				GfxLib::FontRenderer fontRender(&cmdList, &fontSystem, &fontData, vp);
@@ -1257,5 +1287,82 @@ void	GFX::Render()
 
 }
 
+
+
+void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
+{
+
+	cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::ShaderResource, GfxLib::ResourceStates::UnorderedAccess);
+
+
+	const void* rayGenShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_raygenShaderName);
+	const void* missShaderIdentifier	 = m_rtStateObject.GetShaderIdentifier(c_missShaderName);
+	const void* hitGroupShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_hitGroupName);
+
+	const uint32_t shaderIdentifierSize = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+
+	//  CommandList上に、シェーダテーブルを構築する
+
+	struct RootArguments {
+		RayGenConstantBuffer cb;
+	} rootArguments;
+	rootArguments.cb = m_rayGenCB;
+
+	GfxLib::ShaderTable  rayGenShaderTable(cmdList, 1, shaderIdentifierSize+sizeof(RootArguments));
+	rayGenShaderTable.AddRecord(rayGenShaderIdentifier,&rootArguments,sizeof(RootArguments));
+
+	GfxLib::ShaderTable  missShaderTable(cmdList, 1, shaderIdentifierSize);
+	missShaderTable.AddRecord(missShaderIdentifier, nullptr, 0);
+
+
+	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, 1, shaderIdentifierSize);
+	hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, nullptr, 0);
+
+
+	auto DispatchRays = [&](auto* commandList, auto* stateObject, D3D12_DISPATCH_RAYS_DESC* dispatchDesc)
+	{
+		// Since each shader table has only one shader record, the stride is same as the size.
+
+		dispatchDesc->HitGroupTable = hitGroupShaderTable.GetGpuVirtualAddressRangeAndStride();
+		dispatchDesc->MissShaderTable = missShaderTable.GetGpuVirtualAddressRangeAndStride();
+		dispatchDesc->RayGenerationShaderRecord = rayGenShaderTable.GetGpuVirtualAddressRange();
+
+		dispatchDesc->Width = swapChain.GetWidth();
+		dispatchDesc->Height = swapChain.GetHeight();
+		dispatchDesc->Depth = 1;
+		commandList->SetPipelineState1(stateObject);
+		commandList->DispatchRays(dispatchDesc);
+	};
+
+
+	auto* commandList = cmdList.GetD3DCommandList4();
+	commandList->SetComputeRootSignature(globalRootSig.GetD3DRootSignature());
+	
+	cmdList.ReserveDescriptorBuffers(2, 0);
+
+
+	/*
+	GfxLib::DescriptorBuffer  descBuff = cmdList.AllocateDescriptorBuffer(1);
+	commandList->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, m_raytracingOutputResourceUAVGpuDescriptor);
+	commandList->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
+
+	descBuff.CopyHandle(0, m_rtOutput.GetUavDescHandle());
+
+	*/
+
+	D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
+
+	GfxLib::DescriptorBuffer db1 = cmdList.AllocateDescriptorBuffer(1);
+	db1.CopyHandle(0, m_rtOutput.GetUavDescHandle());
+
+	cmdList.GetD3DCommandList()->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, db1.GetGPUDescriptorHandle());
+	cmdList.GetD3DCommandList()->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_rtTLAS.GetD3DResource()->GetGPUVirtualAddress());
+
+
+	DispatchRays(cmdList.GetD3DCommandList4(), m_rtStateObject.GetD3DStateObject(), &dispatchDesc);
+
+
+	cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::UnorderedAccess, GfxLib::ResourceStates::ShaderResource);
+}
 
 
