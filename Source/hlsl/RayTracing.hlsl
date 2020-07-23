@@ -4,15 +4,54 @@
 
 #include "Raytracing.h"
 
+// Global Root Signature
 RaytracingAccelerationStructure Scene : register(t0, space0);
 RWTexture2D<float4> RenderTarget : register(u0);
+
+//  Local Root Signature
 ConstantBuffer<RayGenConstantBuffer> g_rayGenCB : register(b0);
+
+//  [MaterialID]
+ByteAddressBuffer   g_geomIndexBuffer[]   :   register(t16, space0);
+
 
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
 struct RayPayload
 {
     float4 color;
 };
+
+
+uint3   GetIndices(uint materialID , uint primitiveID)
+{
+
+
+    //  16bit
+
+    uint indexOffset = primitiveID * 2 * 3;
+    uint dwordIndex = indexOffset & ~0x3;
+    uint2 packedIndices = g_geomIndexBuffer[materialID].Load2(dwordIndex);
+
+    uint3 indices;
+    if (dwordIndex == indexOffset) {
+
+        indices.x = ( packedIndices.x ) & 0xffff;
+        indices.y = (packedIndices.x >> 16) & 0xffff;
+        indices.z = (packedIndices.y  ) & 0xffff;
+
+    } else {
+
+        indices.x = (packedIndices.x >> 16) & 0xffff;
+        indices.y = (packedIndices.y) & 0xffff;
+        indices.z = (packedIndices.y >> 16) & 0xffff;
+
+    }
+
+    return indices;
+
+}
+
+
 
 bool IsInsideViewport(float2 p, Viewport viewport)
 {
@@ -47,6 +86,9 @@ void MyRaygenShader()
 
     //if (IsInsideViewport(origin.xy, g_rayGenCB.stencil))
     {
+        /*
+            https://microsoft.github.io/DirectX-Specs/d3d/Raytracing.html#addressing-calculations-within-shader-tables
+        */
         // Trace the ray.
         // Set the ray's extents.
         RayDesc ray;
@@ -58,7 +100,13 @@ void MyRaygenShader()
         ray.TMax = 10000.0;
         RayPayload payload = { float4(0, 0, 0, 0) };
         //TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
-        TraceRay(Scene, RAY_FLAG_NONE, ~0, 0, 1, 0, ray, payload);
+        TraceRay(Scene, RAY_FLAG_NONE, 
+            ~0,     //  Instance Masks
+            0,      //  RayContributionToHitGroupIndex                  :   
+            1,      //  MultiplierForGeometryContributionToHitGroupIndex :  BLASのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる
+            0,      //  MissShaderIndex
+            ray, 
+            payload);
 
         // Write the raytraced color to the output texture.
         RenderTarget[DispatchRaysIndex().xy] = payload.color;
@@ -72,8 +120,21 @@ void MyRaygenShader()
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
+
+    uint MaterialID = 0;
+
+    uint  primIndex = PrimitiveIndex();
+    float3 Indices =  (float3)GetIndices(MaterialID, primIndex);
+
+    float intepolatedIndices = Indices.x + attr.barycentrics.x * (Indices.y - Indices.x) + attr.barycentrics.y * (Indices.z - Indices.x);
+
+    intepolatedIndices /= 8;
+
     float3 barycentrics = float3(1 - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
+
     payload.color = float4(barycentrics, 1);
+    //payload.color = float4(intepolatedIndices, intepolatedIndices, intepolatedIndices, 1);
+
 }
 
 [shader("miss")]

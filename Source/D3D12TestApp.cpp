@@ -794,6 +794,9 @@ void	GFX::CreateRayTracingRootSignature()
 
 		//rootSigDesc.AddParam_32BitConstants(sizeof(m_rayGenCB) / sizeof(uint32_t), 0);
 		rootSigDesc.AddParam_Cbv(0);
+		GfxLib::DESCRIPTOR_RANGE	ranges = {GfxLib::DescriptorRangeType::Srv , 1,16,0};
+		rootSigDesc.AddParam_DescriptorTable(&ranges, 1);
+
 		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
 		localRootSig.Initialize(rootSigDesc);
@@ -850,6 +853,7 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		auto rootSignatureAssociation = stateDesc.CreateSubObject<GfxLib::PipelineState_SubobjectToExportsAssociation>();
 		rootSignatureAssociation->SetRootSignature(localRootSignature);
 		rootSignatureAssociation->AddExport(c_raygenShaderName);
+		rootSignatureAssociation->AddExport(c_closestHitShaderName);
 	}
 
 	{
@@ -1335,17 +1339,29 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	const uint32_t shaderIdentifierSize = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
 
+	const uint32_t instanceCount = 1;
+
+
 	//  CommandList上に、シェーダテーブルを構築する
 
 	struct RootArguments {
 		//RayGenConstantBuffer cb;
-		D3D12_GPU_VIRTUAL_ADDRESS	cb;		//	RayGenConstantBuffer
+		D3D12_GPU_VIRTUAL_ADDRESS	cb;			//	RayGenConstantBuffer
+		D3D12_GPU_DESCRIPTOR_HANDLE	indexSRV;	//	IndexSRV	
 	} rootArguments;
 	//rootArguments.cb = m_rayGenCB;
 
-	GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(m_rayGenCB),D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-	memcpy( cbBuffer.GetCpuAddr(), &m_rayGenCB, sizeof(m_rayGenCB) );
-	rootArguments.cb = cbBuffer.GetGpuAddr();
+	// LocalRootArguments
+	{
+		GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(m_rayGenCB), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+		memcpy(cbBuffer.GetCpuAddr(), &m_rayGenCB, sizeof(m_rayGenCB));
+		rootArguments.cb = cbBuffer.GetGpuAddr();
+
+		// LocalRootSignatureだから配列じゃなくてよいか？
+		GfxLib::DescriptorBuffer	indexSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
+		indexSrvDesc.CopyHandle(0, m_rtGeometry.GetIndexBufferSRV());
+		rootArguments.indexSRV = indexSrvDesc.GetGPUDescriptorHandle();
+	}
 
 	GfxLib::ShaderTable  rayGenShaderTable(cmdList, 1, shaderIdentifierSize+sizeof(RootArguments));
 	rayGenShaderTable.AddRecord(rayGenShaderIdentifier,&rootArguments,sizeof(RootArguments));
@@ -1354,8 +1370,8 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	missShaderTable.AddRecord(missShaderIdentifier, nullptr, 0);
 
 
-	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, 1, shaderIdentifierSize);
-	hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, nullptr, 0);
+	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, 1, shaderIdentifierSize + sizeof(RootArguments));
+	hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, &rootArguments, sizeof(RootArguments));
 
 
 	auto DispatchRays = [&](auto* commandList, auto* stateObject, D3D12_DISPATCH_RAYS_DESC* dispatchDesc)
