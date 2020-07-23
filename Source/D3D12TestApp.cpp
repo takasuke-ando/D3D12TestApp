@@ -7,6 +7,9 @@
 #include "GfxLib.h"
 
 
+using namespace DirectX;
+
+
 #define MAX_LOADSTRING 100
 
 // グローバル変数:
@@ -47,8 +50,9 @@ struct Viewport
 
 struct RayGenConstantBuffer
 {
-	Viewport viewport;
-	Viewport stencil;
+	Viewport	viewport;
+	Viewport	stencil;
+	XMMATRIX	mtxCamera;
 };
 
 struct Vertex { float v1, v2, v3; };
@@ -127,7 +131,6 @@ GFX * g_pGfx;
 LARGE_INTEGER			g_lastUpdateTime;
 float					g_accTime = 0;
 
-using namespace DirectX;
 
 struct CBData
 {
@@ -546,7 +549,10 @@ bool	GFX::Initialize()
 		}
 
 		texture2D.WriteToSubresource(0, nullptr, bits, 4 * 128, 0);
-
+			float3 origin = float3(
+		lerp(g_rayGenCB.viewport.left, g_rayGenCB.viewport.right, lerpValues.x),
+		lerp(g_rayGenCB.viewport.top, g_rayGenCB.viewport.bottom, lerpValues.y),
+		0.0f);
 
 		}
 
@@ -741,9 +747,17 @@ bool	GFX::Initialize()
 
 		m_rtShaderLib.CreateFromFile(L"../x64/debug/RayTracing.cso");
 
+		float aspect = swapChain.GetHeight() / (float)swapChain.GetWidth();
+
 		float border = 0.1f;
-		m_rayGenCB.viewport = { -1.0f, -1.0f, 1.0f, 1.0f };
+		m_rayGenCB.viewport = { -1.0f,  aspect, 1.0f, -aspect };
 		m_rayGenCB.stencil = { -1.0f+border, -1.0f+border, 1.0f-border, 1.0f-border };
+
+		XMMATRIX mtxCamera = XMMatrixIdentity();
+		mtxCamera = XMMatrixRotationRollPitchYaw(0.3f,0.f,0.f);
+		mtxCamera.r[3] = XMVectorSet(0.f,1.f,-5.f,0.f);
+
+		m_rayGenCB.mtxCamera = XMMatrixTranspose(mtxCamera);
 
 		CreateRayTracingRootSignature();
 		
@@ -778,7 +792,8 @@ void	GFX::CreateRayTracingRootSignature()
 
 		
 
-		rootSigDesc.AddParam_32BitConstants(sizeof(m_rayGenCB)/sizeof(uint32_t),0);
+		//rootSigDesc.AddParam_32BitConstants(sizeof(m_rayGenCB) / sizeof(uint32_t), 0);
+		rootSigDesc.AddParam_Cbv(0);
 		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
 		localRootSig.Initialize(rootSigDesc);
@@ -819,8 +834,6 @@ void	GFX::CreateRayTracingPipelineStateObject()
 
 
 	{
-
-
 		auto* shaderConfig = stateDesc.CreateSubObject<GfxLib::PipelineState_RaytracingShaderConfig>();
 
 		UINT payloadSize = 4 * sizeof(float);   // float4 color
@@ -883,7 +896,13 @@ void	GFX::CreateRayTracingGeometry()
 
 	uint16_t indices[] =
 	{
-		0, 1, 2
+		0, 1, 2,
+		2, 1, 3,
+
+		4,8,6,
+		5,8,4,
+		7,8,5,
+		6,8,7,
 	};
 
 	float depthValue = 1.0;
@@ -893,9 +912,24 @@ void	GFX::CreateRayTracingGeometry()
 		// The sample raytraces in screen space coordinates.
 		// Since DirectX screen space coordinates are right handed (i.e. Y axis points down).
 		// Define the vertices in counter clockwise order ~ clockwise in left handed.
+		/*
 		{ 0, -offset, depthValue },
 		{ -offset, offset, depthValue },
-		{ offset, offset, depthValue }
+		{ offset, offset, depthValue },
+		*/
+
+
+		{	-10.f,0.f, 10.f	},
+		{	 10.f,0.f, 10.f	},
+		{	-10.f,0.f,-10.f	},
+		{	 10.f,0.f,-10.f	},
+
+		{	-1.f,0.f, 1.f	},
+		{	 1.f,0.f, 1.f	},
+		{	-1.f,0.f,-1.f	},
+		{	 1.f,0.f,-1.f	},
+
+		{	 0.f,5.f,0.f	},
 	};
 
 	m_rtGeometry.Initialize(vertices, sizeof(Vertex), _countof(vertices), indices , GfxLib::Format::R16_UINT, _countof(indices));
@@ -944,7 +978,7 @@ void	GFX::BuildAccelerationStructures()
 void	GFX::CreateRayTracingOutputResource()
 {
 
-	m_rtOutput.InitializeUAV(GfxLib::Format::R8G8B8A8_UNORM,swapChain.GetWidth(),swapChain.GetHeight(),1);
+	m_rtOutput.InitializeUAV(GfxLib::Format::R8G8B8A8_UNORM,swapChain.GetWidth(),swapChain.GetHeight(),1,GfxLib::ResourceStates::ShaderResource);
 
 
 }
@@ -1304,9 +1338,14 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	//  CommandList上に、シェーダテーブルを構築する
 
 	struct RootArguments {
-		RayGenConstantBuffer cb;
+		//RayGenConstantBuffer cb;
+		D3D12_GPU_VIRTUAL_ADDRESS	cb;		//	RayGenConstantBuffer
 	} rootArguments;
-	rootArguments.cb = m_rayGenCB;
+	//rootArguments.cb = m_rayGenCB;
+
+	GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(m_rayGenCB),D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+	memcpy( cbBuffer.GetCpuAddr(), &m_rayGenCB, sizeof(m_rayGenCB) );
+	rootArguments.cb = cbBuffer.GetGpuAddr();
 
 	GfxLib::ShaderTable  rayGenShaderTable(cmdList, 1, shaderIdentifierSize+sizeof(RootArguments));
 	rayGenShaderTable.AddRecord(rayGenShaderIdentifier,&rootArguments,sizeof(RootArguments));
@@ -1347,7 +1386,6 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	commandList->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
 
 	descBuff.CopyHandle(0, m_rtOutput.GetUavDescHandle());
-
 	*/
 
 	D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
