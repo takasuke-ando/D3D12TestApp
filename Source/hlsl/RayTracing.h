@@ -21,6 +21,13 @@ struct RayGenConstantBuffer
     float4x4 mtxCamera; //  ƒJƒƒ‰s—ñ
 };
 
+struct VtxAttrib
+{
+    float3  Normal;
+    float3  BaseColor;
+    float2  Uv;
+};
+
 
 
 

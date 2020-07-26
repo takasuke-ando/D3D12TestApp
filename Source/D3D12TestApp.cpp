@@ -55,8 +55,49 @@ struct RayGenConstantBuffer
 	XMMATRIX	mtxCamera;
 };
 
-struct Vertex { float v1, v2, v3; };
+struct RtVertex { float v1, v2, v3; };
 
+// 頂点属性
+struct RtAttrib {
+
+	XMFLOAT3	Normal;
+	XMFLOAT3	BaseColor;
+	XMFLOAT2	Uv;
+
+};
+
+
+namespace Config
+{
+
+	enum {
+
+		MaxRecursionDepth = 4,
+
+	};
+
+}
+
+enum {
+
+
+	TRACE_TYPE_NUM = 2,
+
+};
+
+const wchar_t* c_hitGroupName[] = {
+	L"MyHitGroup",
+	L"MyHitGroup_Shadow",
+};
+const wchar_t* c_raygenShaderName = L"MyRaygenShader";
+const wchar_t* c_closestHitShaderName[] = {
+	L"MyClosestHitShader",
+	L"MyClosestHitShader_Shadow",
+};
+const wchar_t* c_missShaderName[] = {
+	L"MyMissShader",
+	L"MyMissShader_Shadow",
+};
 
 struct GFX{
 	GfxLib::CoreSystem		gfxCore;
@@ -91,15 +132,13 @@ struct GFX{
 	GfxLib::Shader			m_rtShaderLib;
 	GfxLib::StateObject		m_rtStateObject;
 	GfxLib::RtGeometry		m_rtGeometry;
+	GfxLib::StructuredBuffer	m_rtGeomAttrib;
 	GfxLib::Texture2D		m_rtOutput;
 	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
 	GfxLib::BottomLevelAccelerationStructure	m_rtBLAS;
 	GfxLib::Buffer			m_rtScratch;
 
-	const wchar_t* c_hitGroupName = L"MyHitGroup";
-	const wchar_t* c_raygenShaderName = L"MyRaygenShader";
-	const wchar_t* c_closestHitShaderName = L"MyClosestHitShader";
-	const wchar_t* c_missShaderName = L"MyMissShader";
+
 
 	bool	Initialize();
 	void	Finalize();
@@ -754,8 +793,8 @@ bool	GFX::Initialize()
 		m_rayGenCB.stencil = { -1.0f+border, -1.0f+border, 1.0f-border, 1.0f-border };
 
 		XMMATRIX mtxCamera = XMMatrixIdentity();
-		mtxCamera = XMMatrixRotationRollPitchYaw(0.3f,0.f,0.f);
-		mtxCamera.r[3] = XMVectorSet(0.f,1.f,-5.f,0.f);
+		mtxCamera = XMMatrixRotationRollPitchYaw(0.5f,0.f,0.f);
+		mtxCamera.r[3] = XMVectorSet(0.f,2.f,-5.f,0.f);
 
 		m_rayGenCB.mtxCamera = XMMatrixTranspose(mtxCamera);
 
@@ -797,6 +836,10 @@ void	GFX::CreateRayTracingRootSignature()
 		GfxLib::DESCRIPTOR_RANGE	ranges = {GfxLib::DescriptorRangeType::Srv , 1,16,0};
 		rootSigDesc.AddParam_DescriptorTable(&ranges, 1);
 
+		GfxLib::DESCRIPTOR_RANGE	ranges2 = { GfxLib::DescriptorRangeType::Srv , 1,16,1 };
+		rootSigDesc.AddParam_DescriptorTable(&ranges2, 1);
+
+
 		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
 		localRootSig.Initialize(rootSigDesc);
@@ -818,10 +861,11 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		D3D12_SHADER_BYTECODE dxillib = m_rtShaderLib.GetD3D12ShaderBytecode();
 		subobj->SetDXILLibrary(dxillib);
 		subobj->AddExport(c_raygenShaderName);
-		subobj->AddExport(c_closestHitShaderName);
-		subobj->AddExport(c_missShaderName);
+		for( auto s : c_closestHitShaderName )	subobj->AddExport(s);
+		for( auto s : c_missShaderName )		subobj->AddExport(s);
 	}
 
+	for ( uint32_t i = 0 ; i < TRACE_TYPE_NUM; ++i )
 	{
 		/*
 			HitGroupはAnyHit、ClosestHit、ClosestHitで同じグループに入る
@@ -829,8 +873,8 @@ void	GFX::CreateRayTracingPipelineStateObject()
 
 		auto* hitGroup = stateDesc.CreateSubObject<GfxLib::PipelineState_HitGroup>();
 
-		hitGroup->SetClosestHitShaderImport(c_closestHitShaderName);
-		hitGroup->SetHitGroupExport(c_hitGroupName);
+		hitGroup->SetClosestHitShaderImport(c_closestHitShaderName[i]);
+		hitGroup->SetHitGroupExport(c_hitGroupName[i]);
 		hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
 
 	}
@@ -853,7 +897,7 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		auto rootSignatureAssociation = stateDesc.CreateSubObject<GfxLib::PipelineState_SubobjectToExportsAssociation>();
 		rootSignatureAssociation->SetRootSignature(localRootSignature);
 		rootSignatureAssociation->AddExport(c_raygenShaderName);
-		rootSignatureAssociation->AddExport(c_closestHitShaderName);
+		for(auto s : c_closestHitShaderName ) rootSignatureAssociation->AddExport(s);
 	}
 
 	{
@@ -868,7 +912,7 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		auto pipelineConfig = stateDesc.CreateSubObject<GfxLib::PipelineState_PipelineConfig>();
 		// PERFOMANCE TIP: Set max recursion depth as low as needed 
 		// as drivers may apply optimization strategies for low recursion depths. 
-		UINT maxRecursionDepth = 1; // ~ primary rays only. 
+		UINT maxRecursionDepth = Config::MaxRecursionDepth; // ~ primary rays only. 
 		pipelineConfig->Config(maxRecursionDepth);
 
 	}
@@ -911,7 +955,7 @@ void	GFX::CreateRayTracingGeometry()
 
 	float depthValue = 1.0;
 	float offset = 0.7f;
-	Vertex vertices[] =
+	RtVertex vertices[] =
 	{
 		// The sample raytraces in screen space coordinates.
 		// Since DirectX screen space coordinates are right handed (i.e. Y axis points down).
@@ -933,10 +977,33 @@ void	GFX::CreateRayTracingGeometry()
 		{	-1.f,0.f,-1.f	},
 		{	 1.f,0.f,-1.f	},
 
-		{	 0.f,5.f,0.f	},
+		{	 0.f,1.f,0.f	},
 	};
 
-	m_rtGeometry.Initialize(vertices, sizeof(Vertex), _countof(vertices), indices , GfxLib::Format::R16_UINT, _countof(indices));
+	m_rtGeometry.Initialize(vertices, sizeof(RtVertex), _countof(vertices), indices , GfxLib::Format::R16_UINT, _countof(indices));
+
+
+
+	RtAttrib	vtxAttrib[] =
+	{
+
+		{	{0.f,1.f,0.f},	{1.f,1.f,1.f},	{},	},
+		{	{0.f,1.f,0.f},	{1.f,1.f,1.f},	{},	},
+		{	{0.f,1.f,0.f},	{1.f,1.f,1.f},	{},	},
+		{	{0.f,1.f,0.f},	{1.f,1.f,1.f},	{},	},
+
+		{	{-0.57735f,0.57735f, 0.57735f},	{1.f,1.f,0.f},	{},	},
+		{	{ 0.57735f,0.57735f, 0.57735f},	{0.f,1.f,1.f},	{},	},
+		{	{-0.57735f,0.57735f,-0.57735f},	{0.f,0.3f,0.5f},{},	},
+		{	{ 0.57735f,0.57735f,-0.57735f},	{0.8f,0.f,0.7f},{},	},
+
+		{	{0.f,1.f,0.f},	{1.f,0.f,0.f},	{},	},
+
+
+	};
+
+
+	m_rtGeomAttrib.InitializeImmutable(vtxAttrib,sizeof(RtAttrib), _countof(vtxAttrib), GfxLib::ResourceStates::ShaderResource);
 
 }
 
@@ -1029,6 +1096,7 @@ void	GFX::Finalize()
 	m_rtBLAS.Finalize();
 	m_rtTLAS.Finalize();
 	m_rtScratch.Finalize();
+	m_rtGeomAttrib.Finalize();
 
 
 	gfxCore.Finalize();
@@ -1334,8 +1402,8 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 
 	const void* rayGenShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_raygenShaderName);
-	const void* missShaderIdentifier	 = m_rtStateObject.GetShaderIdentifier(c_missShaderName);
-	const void* hitGroupShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_hitGroupName);
+	const void* missShaderIdentifier0 = m_rtStateObject.GetShaderIdentifier(c_missShaderName[0]);
+	const void* missShaderIdentifier1 = m_rtStateObject.GetShaderIdentifier(c_missShaderName[1]);
 
 	const uint32_t shaderIdentifierSize = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
 
@@ -1348,6 +1416,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 		//RayGenConstantBuffer cb;
 		D3D12_GPU_VIRTUAL_ADDRESS	cb;			//	RayGenConstantBuffer
 		D3D12_GPU_DESCRIPTOR_HANDLE	indexSRV;	//	IndexSRV	
+		D3D12_GPU_DESCRIPTOR_HANDLE	vtxSRV;		//	VtxSRV
 	} rootArguments;
 	//rootArguments.cb = m_rayGenCB;
 
@@ -1361,17 +1430,27 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 		GfxLib::DescriptorBuffer	indexSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
 		indexSrvDesc.CopyHandle(0, m_rtGeometry.GetIndexBufferSRV());
 		rootArguments.indexSRV = indexSrvDesc.GetGPUDescriptorHandle();
+
+		GfxLib::DescriptorBuffer	vtxSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
+		vtxSrvDesc.CopyHandle(0, m_rtGeomAttrib.GetSrvDescHandle());
+		rootArguments.vtxSRV = vtxSrvDesc.GetGPUDescriptorHandle();
+
+
 	}
 
 	GfxLib::ShaderTable  rayGenShaderTable(cmdList, 1, shaderIdentifierSize+sizeof(RootArguments));
 	rayGenShaderTable.AddRecord(rayGenShaderIdentifier,&rootArguments,sizeof(RootArguments));
 
-	GfxLib::ShaderTable  missShaderTable(cmdList, 1, shaderIdentifierSize);
-	missShaderTable.AddRecord(missShaderIdentifier, nullptr, 0);
+	GfxLib::ShaderTable  missShaderTable(cmdList, 2, shaderIdentifierSize);
+	missShaderTable.AddRecord(missShaderIdentifier0, nullptr, 0);
+	missShaderTable.AddRecord(missShaderIdentifier1, nullptr, 0);
 
 
-	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, 1, shaderIdentifierSize + sizeof(RootArguments));
-	hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, &rootArguments, sizeof(RootArguments));
+	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, TRACE_TYPE_NUM, shaderIdentifierSize + sizeof(RootArguments));
+	for (uint32_t i = 0; i < TRACE_TYPE_NUM; ++i) {
+		const void* hitGroupShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_hitGroupName[i]);
+		hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, &rootArguments, sizeof(RootArguments));
+	}
 
 
 	auto DispatchRays = [&](auto* commandList, auto* stateObject, D3D12_DISPATCH_RAYS_DESC* dispatchDesc)
