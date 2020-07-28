@@ -29,6 +29,8 @@ namespace GlobalRootSignatureParams {
 	enum Value {
 		OutputViewSlot = 0,
 		AccelerationStructureSlot,
+		SamplerStateSlot,
+		SkyTextures,
 		Count
 	};
 }
@@ -53,6 +55,12 @@ struct RayGenConstantBuffer
 	Viewport	viewport;
 	Viewport	stencil;
 	XMMATRIX	mtxCamera;
+};
+
+struct ModelConstantBuffer
+{
+	uint32_t  isIndex16bit;
+	uint32_t	padd[3];
 };
 
 struct RtVertex { float v1, v2, v3; };
@@ -120,6 +128,7 @@ struct GFX{
 	GfxLib::BlendState		blendState2;
 	GfxLib::RasterizerState	rasterizerState;
 	GfxLib::InputLayout		inputLayout;
+	GfxLib::Sampler			sampsLinear;
 
 	GfxLib::FontSystem		fontSystem;
 	GfxLib::FontData		fontData;
@@ -128,6 +137,8 @@ struct GFX{
 	//	Ray Tracing
 	GfxLib::RootSignature	globalRootSig;
 	GfxLib::RootSignature	localRootSig;
+	GfxLib::RootSignature	localRootSigMiss;
+	GfxLib::RootSignature	localRootSigRayGen;
 	RayGenConstantBuffer	m_rayGenCB;
 	GfxLib::Shader			m_rtShaderLib;
 	GfxLib::StateObject		m_rtStateObject;
@@ -137,8 +148,14 @@ struct GFX{
 	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
 	GfxLib::BottomLevelAccelerationStructure	m_rtBLAS;
 	GfxLib::Buffer			m_rtScratch;
+	GfxLib::Texture2D		m_texSky;
+	GfxLib::Texture2D		m_texSkyRem;
+	GfxLib::Texture2D		m_texSkyIem;
 
 
+	float		m_camAngX, m_camAngY;
+	POINT	m_lastMouseDown;
+	bool	m_MouseMove;
 
 	bool	Initialize();
 	void	Finalize();
@@ -148,10 +165,14 @@ struct GFX{
 
 	void	DoRayTracing(GfxLib::GraphicsCommandList &cmdList);
 
+	void	OnLButtonDown(POINT pt);
+	void	OnLButtonUp(POINT pt);
+	void	OnMouseMove(POINT pt);
 
 	void	CreateRayTracingRootSignature();
 	void	CreateRayTracingPipelineStateObject();
 	void	CreateRayTracingGeometry();
+	void	CreateRayTracingResources();
 	void	BuildAccelerationStructures();
 	void	CreateRayTracingOutputResource();	//	出力リソースの作成
 };
@@ -321,8 +342,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_COMMAND:
-        {
-            int wmId = LOWORD(wParam);
+		{	
+			int wmId = LOWORD(wParam);
             // 選択されたメニューの解析:
             switch (wmId)
             {
@@ -345,6 +366,37 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             EndPaint(hWnd, &ps);
         }
         break;
+	case WM_LBUTTONDOWN:
+		{
+			POINT pt;
+			pt.x = LOWORD(lParam);
+			pt.y = HIWORD(lParam);
+
+			if (g_pGfx) g_pGfx->OnLButtonDown(pt);
+
+			SetCapture(hWnd);
+		}
+		break;
+	case WM_LBUTTONUP:
+		{
+			POINT pt;
+			pt.x = LOWORD(lParam);
+			pt.y = HIWORD(lParam);
+
+			if (g_pGfx) g_pGfx->OnLButtonUp(pt);
+
+			ReleaseCapture();
+		}
+		break;
+	case WM_MOUSEMOVE:
+		{
+			POINT pt;
+			pt.x = LOWORD(lParam);
+			pt.y = HIWORD(lParam);
+
+			if (g_pGfx) g_pGfx->OnMouseMove(pt);
+		}
+		break;
 	case WM_CLOSE:
 		{
 
@@ -402,6 +454,12 @@ bool	GFX::Initialize()
 		return FALSE;
 	}
 
+
+	m_camAngX = 0;
+	m_camAngY = 0;
+	m_MouseMove = false;
+
+	m_lastMouseDown = POINT{ 0,0 };
 
 	// メイン メッセージ ループ:
 	/*
@@ -685,100 +743,111 @@ bool	GFX::Initialize()
 
 
 
-		char elemstr[] = { "POSITION" };
+char elemstr[] = { "POSITION" };
 
-		D3D12_INPUT_ELEMENT_DESC inputElement2[] = {
-			{ elemstr,	0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "NORMAL",		0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "TEXCOORD",	0	,	DXGI_FORMAT_R32G32_FLOAT,		0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-			{ "VTX_COLOR",	0	,	DXGI_FORMAT_R32G32B32A32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
-		};
+D3D12_INPUT_ELEMENT_DESC inputElement2[] = {
+	{ elemstr,	0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+	{ "NORMAL",		0	,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+	{ "TEXCOORD",	0	,	DXGI_FORMAT_R32G32_FLOAT,		0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+	{ "VTX_COLOR",	0	,	DXGI_FORMAT_R32G32B32A32_FLOAT,	0,	D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 },
+};
 
-		GfxLib::InputLayout il2;
-		il2.Initialize(_countof(inputElement2), inputElement2);
+GfxLib::InputLayout il2;
+il2.Initialize(_countof(inputElement2), inputElement2);
 
 
 
-		//	ラスタライザステートの設定
-		D3D12_RASTERIZER_DESC descRS = {};
+//	ラスタライザステートの設定
+D3D12_RASTERIZER_DESC descRS = {};
 
-		descRS.FillMode = D3D12_FILL_MODE_SOLID;
-		descRS.CullMode = D3D12_CULL_MODE_NONE;
-		descRS.FrontCounterClockwise = FALSE;
-		descRS.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
-		descRS.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
-		descRS.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
-		descRS.DepthClipEnable = TRUE;
-		descRS.MultisampleEnable = FALSE;
-		descRS.AntialiasedLineEnable = FALSE;
-		descRS.ForcedSampleCount = 0;
-		descRS.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+descRS.FillMode = D3D12_FILL_MODE_SOLID;
+descRS.CullMode = D3D12_CULL_MODE_NONE;
+descRS.FrontCounterClockwise = FALSE;
+descRS.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+descRS.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+descRS.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+descRS.DepthClipEnable = TRUE;
+descRS.MultisampleEnable = FALSE;
+descRS.AntialiasedLineEnable = FALSE;
+descRS.ForcedSampleCount = 0;
+descRS.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
-		// レンダーターゲットのブレンド設定
-		D3D12_RENDER_TARGET_BLEND_DESC descRTBS = {
-			FALSE,	FALSE,
-			D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
-			D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
-			D3D12_LOGIC_OP_NOOP,
-			D3D12_COLOR_WRITE_ENABLE_ALL,
-		};
+// レンダーターゲットのブレンド設定
+D3D12_RENDER_TARGET_BLEND_DESC descRTBS = {
+	FALSE,	FALSE,
+	D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
+	D3D12_BLEND_ONE,	D3D12_BLEND_ZERO,	D3D12_BLEND_OP_ADD,
+	D3D12_LOGIC_OP_NOOP,
+	D3D12_COLOR_WRITE_ENABLE_ALL,
+};
 
-		// ブレンドステートの設定
-		D3D12_BLEND_DESC descBS;
-		descBS.AlphaToCoverageEnable = FALSE;
-		descBS.IndependentBlendEnable = FALSE;
-		for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
-			descBS.RenderTarget[i] = descRTBS;
-		};
+// ブレンドステートの設定
+D3D12_BLEND_DESC descBS;
+descBS.AlphaToCoverageEnable = FALSE;
+descBS.IndependentBlendEnable = FALSE;
+for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+	descBS.RenderTarget[i] = descRTBS;
+};
 
-		// パイプラインステートの設定
-		D3D12_GRAPHICS_PIPELINE_STATE_DESC	desc = {};
+// パイプラインステートの設定
+D3D12_GRAPHICS_PIPELINE_STATE_DESC	desc = {};
 
-		desc.InputLayout = { inputElement,_countof(inputElement) };
-		desc.pRootSignature = rootSig.GetD3DRootSignature();
-		desc.VS = vertexshader.GetD3D12ShaderBytecode();	//	TODO
-		desc.PS = pixelshader.GetD3D12ShaderBytecode();
-		desc.RasterizerState = descRS;
-		desc.BlendState = descBS;
-		desc.DepthStencilState.DepthEnable = TRUE;
-		desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-		desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-		desc.DepthStencilState.StencilEnable = FALSE;
-		desc.SampleMask = UINT_MAX;
-		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-		desc.NumRenderTargets = 1;
-		desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-		desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-		desc.SampleDesc.Count = 1;
+desc.InputLayout = { inputElement,_countof(inputElement) };
+desc.pRootSignature = rootSig.GetD3DRootSignature();
+desc.VS = vertexshader.GetD3D12ShaderBytecode();	//	TODO
+desc.PS = pixelshader.GetD3D12ShaderBytecode();
+desc.RasterizerState = descRS;
+desc.BlendState = descBS;
+desc.DepthStencilState.DepthEnable = TRUE;
+desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+desc.DepthStencilState.StencilEnable = FALSE;
+desc.SampleMask = UINT_MAX;
+desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+desc.NumRenderTargets = 1;
+desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+desc.SampleDesc.Count = 1;
+
+
+{
+	D3D12_SAMPLER_DESC desc = GfxLib::Sampler::GetDefaultDesc();
+	sampsLinear.Initialize(desc);
+}
 
 
 #ifndef ENABLE_ONTHEFLY_PSO
-		pipelineState.Initialize(desc);
+pipelineState.Initialize(desc);
 #endif
 
-		//	OnTheFly PSO
-		depthStencilState.Initialize(desc.DepthStencilState);
+//	OnTheFly PSO
+depthStencilState.Initialize(desc.DepthStencilState);
 
-		blendState.Initialize(descBS);
+blendState.Initialize(descBS);
 
-		// AlphaBlend
-		descRTBS.BlendEnable = true;
-		descRTBS.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		descRTBS.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+// AlphaBlend
+descRTBS.BlendEnable = true;
+descRTBS.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+descRTBS.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
 
-		descBS.RenderTarget[0] = descRTBS;
-		blendState2.Initialize(descBS);
+descBS.RenderTarget[0] = descRTBS;
+blendState2.Initialize(descBS);
 
 
-		rasterizerState.Initialize(descRS);
+rasterizerState.Initialize(descRS);
 
-		inputLayout.Initialize(_countof(inputElement), inputElement);
+inputLayout.Initialize(_countof(inputElement), inputElement);
 
 	}
 #endif
 
 #endif
 
+	{
+
+
+
+	}
 
 
 	{
@@ -793,7 +862,7 @@ bool	GFX::Initialize()
 		m_rayGenCB.stencil = { -1.0f+border, -1.0f+border, 1.0f-border, 1.0f-border };
 
 		XMMATRIX mtxCamera = XMMatrixIdentity();
-		mtxCamera = XMMatrixRotationRollPitchYaw(0.5f,0.f,0.f);
+		mtxCamera = XMMatrixRotationRollPitchYaw(m_camAngY,m_camAngX,0.f);
 		mtxCamera.r[3] = XMVectorSet(0.f,2.f,-5.f,0.f);
 
 		m_rayGenCB.mtxCamera = XMMatrixTranspose(mtxCamera);
@@ -803,6 +872,8 @@ bool	GFX::Initialize()
 		CreateRayTracingPipelineStateObject();
 
 		CreateRayTracingGeometry();
+
+		CreateRayTracingResources();
 
 		BuildAccelerationStructures();
 
@@ -824,6 +895,8 @@ void	GFX::CreateRayTracingRootSignature()
 
 		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Uav,1,0 }, 1);
 		rootSigDesc.AddParam_Srv(0);
+		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Sampler,1,0 }, 1);
+		rootSigDesc.AddParam_DescriptorTable(&GfxLib::DESCRIPTOR_RANGE{ GfxLib::DescriptorRangeType::Srv,3,1 }, 1);
 
 		globalRootSig.Initialize(rootSigDesc);
 
@@ -832,11 +905,11 @@ void	GFX::CreateRayTracingRootSignature()
 		
 
 		//rootSigDesc.AddParam_32BitConstants(sizeof(m_rayGenCB) / sizeof(uint32_t), 0);
-		rootSigDesc.AddParam_Cbv(0);
-		GfxLib::DESCRIPTOR_RANGE	ranges = {GfxLib::DescriptorRangeType::Srv , 1,16,0};
+		rootSigDesc.AddParam_Cbv(16);
+		GfxLib::DESCRIPTOR_RANGE	ranges = {GfxLib::DescriptorRangeType::Srv , 1,16,1};
 		rootSigDesc.AddParam_DescriptorTable(&ranges, 1);
 
-		GfxLib::DESCRIPTOR_RANGE	ranges2 = { GfxLib::DescriptorRangeType::Srv , 1,16,1 };
+		GfxLib::DESCRIPTOR_RANGE	ranges2 = { GfxLib::DescriptorRangeType::Srv , 1,16,2 };
 		rootSigDesc.AddParam_DescriptorTable(&ranges2, 1);
 
 
@@ -846,6 +919,22 @@ void	GFX::CreateRayTracingRootSignature()
 
 		rootSigDesc.Clear();
 
+		{
+			GfxLib::DESCRIPTOR_RANGE	ranges = { GfxLib::DescriptorRangeType::Srv , 1,16,0 };
+			rootSigDesc.AddParam_DescriptorTable(&ranges, 1);
+		}
+		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+		localRootSigMiss.Initialize(rootSigDesc);
+
+
+		// RayGen
+		rootSigDesc.Clear();
+
+		rootSigDesc.AddParam_Cbv(0);
+		rootSigDesc.SetFlags(D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+		localRootSigRayGen.Initialize(rootSigDesc);
 }
 
 
@@ -896,8 +985,29 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		// Shader association
 		auto rootSignatureAssociation = stateDesc.CreateSubObject<GfxLib::PipelineState_SubobjectToExportsAssociation>();
 		rootSignatureAssociation->SetRootSignature(localRootSignature);
-		rootSignatureAssociation->AddExport(c_raygenShaderName);
 		for(auto s : c_closestHitShaderName ) rootSignatureAssociation->AddExport(s);
+	}
+
+	{
+		//	LocalRootSignature Associate [raygen]
+
+		auto localRootSignature = stateDesc.CreateSubObject<GfxLib::PipelineState_LocalRootSignature>();
+		localRootSignature->SetRootSignature(localRootSigRayGen.GetD3DRootSignature());
+		// Shader association
+		auto rootSignatureAssociation = stateDesc.CreateSubObject<GfxLib::PipelineState_SubobjectToExportsAssociation>();
+		rootSignatureAssociation->SetRootSignature(localRootSignature);
+		rootSignatureAssociation->AddExport(c_raygenShaderName);
+	}
+
+	{
+		//	Local Root Signature for [miss]
+
+		auto localRootSignature = stateDesc.CreateSubObject<GfxLib::PipelineState_LocalRootSignature>();
+		localRootSignature->SetRootSignature(localRootSigMiss.GetD3DRootSignature());
+		// Shader association
+		auto rootSignatureAssociation = stateDesc.CreateSubObject<GfxLib::PipelineState_SubobjectToExportsAssociation>();
+		rootSignatureAssociation->SetRootSignature(localRootSignature);
+		for (auto s : c_missShaderName ) rootSignatureAssociation->AddExport(s);
 	}
 
 	{
@@ -942,6 +1052,84 @@ void	GFX::CreateRayTracingPipelineStateObject()
 void	GFX::CreateRayTracingGeometry()
 {
 
+	GfxLib::InterModelData interModelData;
+
+	if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny.obj")) {
+
+
+		// ?
+
+		return;
+
+	}
+
+	//const float scale = 0.01f;	//	bmw
+	const float scale = 2.f;	//	bunny
+
+	const auto& triangles = interModelData.GetTriangle();
+	const auto& vertices = interModelData.GetVertex();
+
+
+	uint32_t indices_size = (uint32_t)triangles.size() * 3;
+
+	uint32_t vertices_size = (uint32_t)vertices.size();
+	RtVertex* positions = new RtVertex[vertices_size];
+	RtAttrib* attribs = new RtAttrib[vertices_size];
+
+
+	uint32_t i = 0;
+
+
+	i = 0;
+	for (auto& vert : vertices) {
+
+		RtVertex &vtx = positions[i];
+		RtAttrib& attr = attribs[i];
+
+		vtx.v1 = vert.pos.x * scale;
+		vtx.v2 = vert.pos.y * scale;
+		vtx.v3 = vert.pos.z * scale;
+
+
+		attr.BaseColor = XMFLOAT3{ 1,1,1 };
+		attr.Normal = vert.norm;
+		attr.Uv = XMFLOAT2{ vert.uv.x,vert.uv.y };
+
+
+		++i;
+
+	}
+
+
+	m_rtGeomAttrib.InitializeImmutable(attribs, sizeof(RtAttrib), vertices_size, GfxLib::ResourceStates::ShaderResource);
+
+
+	if (vertices_size <= 0xffff) {
+		uint16_t* indices = new uint16_t[indices_size];
+		int32_t i = 0;
+		for (auto& tri : triangles) {
+
+			indices[i++] = tri.v0;
+			indices[i++] = tri.v1;
+			indices[i++] = tri.v2;
+
+		}
+		m_rtGeometry.Initialize(positions, sizeof(RtVertex), vertices_size, indices, GfxLib::Format::R16_UINT, indices_size);
+	} else {
+
+		uint32_t* indices = new uint32_t[indices_size];
+		int32_t i = 0;
+		for (auto& tri : triangles) {
+
+			indices[i++] = tri.v0;
+			indices[i++] = tri.v1;
+			indices[i++] = tri.v2;
+
+		}
+		m_rtGeometry.Initialize(positions, sizeof(RtVertex), vertices_size, indices, GfxLib::Format::R32_UINT, indices_size);
+	}
+
+#if 0
 	uint16_t indices[] =
 	{
 		0, 1, 2,
@@ -1004,9 +1192,19 @@ void	GFX::CreateRayTracingGeometry()
 
 
 	m_rtGeomAttrib.InitializeImmutable(vtxAttrib,sizeof(RtAttrib), _countof(vtxAttrib), GfxLib::ResourceStates::ShaderResource);
-
+#endif
 }
 
+
+void	GFX::CreateRayTracingResources()
+{
+
+	m_texSky.InitializeFromFile(L"Media\\Texture\\sky_bg.dds");
+	m_texSkyRem.InitializeFromFile(L"Media\\Texture\\sky_rem.dds");
+	m_texSkyIem.InitializeFromFile(L"Media\\Texture\\sky_iem.dds");
+
+
+}
 
 
 void	GFX::BuildAccelerationStructures()
@@ -1018,6 +1216,9 @@ void	GFX::BuildAccelerationStructures()
 		&m_rtBLAS,
 	};
 	m_rtTLAS.Initialize(tlas, _countof(tlas));
+
+
+	m_rtBLAS.SetTransform(XMMatrixRotationY(XM_PI));
 
 
 	size_t scratchsize = std::max( m_rtBLAS.GetScratchDataSizeInBytes(), m_rtTLAS.GetScratchDataSizeInBytes() );
@@ -1084,11 +1285,13 @@ void	GFX::Finalize()
 	blendState.Finalize();
 	blendState2.Finalize();
 	inputLayout.Finalize();
-
+	sampsLinear.Finalize();
 
 
 	globalRootSig.Finalize();
 	localRootSig.Finalize();
+	localRootSigRayGen.Finalize();
+	localRootSigMiss.Finalize();
 	m_rtShaderLib.Finalize();
 	m_rtStateObject.Finalize();
 	m_rtGeometry.Finalize();
@@ -1097,6 +1300,9 @@ void	GFX::Finalize()
 	m_rtTLAS.Finalize();
 	m_rtScratch.Finalize();
 	m_rtGeomAttrib.Finalize();
+	m_texSky.Finalize();
+	m_texSkyRem.Finalize();
+	m_texSkyIem.Finalize();
 
 
 	gfxCore.Finalize();
@@ -1410,6 +1616,16 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	const uint32_t instanceCount = 1;
 
 
+	XMMATRIX mtxCamera = XMMatrixIdentity();
+	//mtxCamera = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
+	mtxCamera.r[3] = XMVectorSet(0.f, 2.f, -5.f, 0.f);
+
+	XMMATRIX mtxRotate  = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
+
+	mtxCamera = XMMatrixMultiply(mtxCamera, mtxRotate);
+
+	m_rayGenCB.mtxCamera = XMMatrixTranspose(mtxCamera);
+
 	//  CommandList上に、シェーダテーブルを構築する
 
 	struct RootArguments {
@@ -1418,12 +1634,29 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 		D3D12_GPU_DESCRIPTOR_HANDLE	indexSRV;	//	IndexSRV	
 		D3D12_GPU_DESCRIPTOR_HANDLE	vtxSRV;		//	VtxSRV
 	} rootArguments;
+
+	struct RootArguments_RayGen {
+		//RayGenConstantBuffer cb;
+		D3D12_GPU_VIRTUAL_ADDRESS	cb;			//	RayGenConstantBuffer
+	} rootArguments_RayGen;
+
+	struct RootArguments_Miss {
+		//RayGenConstantBuffer cb;
+		D3D12_GPU_DESCRIPTOR_HANDLE	srv;	//	IndexSRV	
+	} rootArguments_Miss;
+
+
 	//rootArguments.cb = m_rayGenCB;
 
 	// LocalRootArguments
 	{
-		GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(m_rayGenCB), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-		memcpy(cbBuffer.GetCpuAddr(), &m_rayGenCB, sizeof(m_rayGenCB));
+
+		ModelConstantBuffer  modelCB = {};
+
+		modelCB.isIndex16bit = m_rtGeometry.GetIndexFormat() == GfxLib::Format::R16_UINT;
+
+		GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(modelCB), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+		memcpy(cbBuffer.GetCpuAddr(), &modelCB, sizeof(modelCB));
 		rootArguments.cb = cbBuffer.GetGpuAddr();
 
 		// LocalRootSignatureだから配列じゃなくてよいか？
@@ -1434,16 +1667,34 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 		GfxLib::DescriptorBuffer	vtxSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
 		vtxSrvDesc.CopyHandle(0, m_rtGeomAttrib.GetSrvDescHandle());
 		rootArguments.vtxSRV = vtxSrvDesc.GetGPUDescriptorHandle();
+	}
+
+	// LocalRootArguments for RayGen
+	{
+		GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(m_rayGenCB), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+		memcpy(cbBuffer.GetCpuAddr(), &m_rayGenCB, sizeof(m_rayGenCB));
+		rootArguments_RayGen.cb = cbBuffer.GetGpuAddr();
+
+
 
 
 	}
 
-	GfxLib::ShaderTable  rayGenShaderTable(cmdList, 1, shaderIdentifierSize+sizeof(RootArguments));
-	rayGenShaderTable.AddRecord(rayGenShaderIdentifier,&rootArguments,sizeof(RootArguments));
+	// LocalRootArguments for miss
+	{
 
-	GfxLib::ShaderTable  missShaderTable(cmdList, 2, shaderIdentifierSize);
-	missShaderTable.AddRecord(missShaderIdentifier0, nullptr, 0);
-	missShaderTable.AddRecord(missShaderIdentifier1, nullptr, 0);
+		GfxLib::DescriptorBuffer	vtxSrvDesc = cmdList.AllocateDescriptorBuffer(1);
+		vtxSrvDesc.CopyHandle(0, m_texSky.GetSrvDescHandle());
+		rootArguments_Miss.srv = vtxSrvDesc.GetGPUDescriptorHandle();
+
+	}
+
+	GfxLib::ShaderTable  rayGenShaderTable(cmdList, 1, shaderIdentifierSize+sizeof(rootArguments_RayGen));
+	rayGenShaderTable.AddRecord(rayGenShaderIdentifier,&rootArguments_RayGen,sizeof(rootArguments_RayGen));
+
+	GfxLib::ShaderTable  missShaderTable(cmdList, 2, shaderIdentifierSize+sizeof(RootArguments_Miss));
+	missShaderTable.AddRecord(missShaderIdentifier0, &rootArguments_Miss, sizeof(rootArguments_Miss));
+	missShaderTable.AddRecord(missShaderIdentifier1, &rootArguments_Miss, sizeof(rootArguments_Miss));
 
 
 	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, TRACE_TYPE_NUM, shaderIdentifierSize + sizeof(RootArguments));
@@ -1488,8 +1739,21 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	GfxLib::DescriptorBuffer db1 = cmdList.AllocateDescriptorBuffer(1);
 	db1.CopyHandle(0, m_rtOutput.GetUavDescHandle());
 
+	GfxLib::DescriptorBuffer db2 = cmdList.AllocateDescriptorBuffer_Sampler(1);
+	db2.CopyHandle(0, sampsLinear.GetDescHandle());
+
+
+	GfxLib::DescriptorBuffer db3 = cmdList.AllocateDescriptorBuffer(3);
+	db3.CopyHandle(0, m_texSky.GetSrvDescHandle());
+	db3.CopyHandle(1, m_texSkyRem.GetSrvDescHandle());
+	db3.CopyHandle(2, m_texSkyIem.GetSrvDescHandle());
+
+
+
 	cmdList.GetD3DCommandList()->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, db1.GetGPUDescriptorHandle());
 	cmdList.GetD3DCommandList()->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_rtTLAS.GetD3DResource()->GetGPUVirtualAddress());
+	cmdList.GetD3DCommandList()->SetComputeRootDescriptorTable(GlobalRootSignatureParams::SamplerStateSlot, db2.GetGPUDescriptorHandle());
+	cmdList.GetD3DCommandList()->SetComputeRootDescriptorTable(GlobalRootSignatureParams::SkyTextures, db3.GetGPUDescriptorHandle());
 
 
 	DispatchRays(cmdList.GetD3DCommandList4(), m_rtStateObject.GetD3DStateObject(), &dispatchDesc);
@@ -1499,3 +1763,26 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 }
 
 
+void	GFX::OnLButtonDown(POINT pt)
+{
+	m_lastMouseDown = pt;
+	m_MouseMove = true;
+
+}
+void	GFX::OnLButtonUp(POINT pt)
+{
+
+	m_MouseMove = false;
+
+}
+void	GFX::OnMouseMove(POINT pt)
+{
+	if (m_MouseMove) {
+		m_camAngX += (pt.x - m_lastMouseDown.x) * 0.001f;
+		m_camAngY += (pt.y - m_lastMouseDown.y) * 0.001f;
+
+		m_lastMouseDown = pt;
+	}
+
+
+}

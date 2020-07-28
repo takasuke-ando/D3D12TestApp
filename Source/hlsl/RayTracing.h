@@ -21,6 +21,14 @@ struct RayGenConstantBuffer
     float4x4 mtxCamera; //  ƒJƒƒ‰s—ñ
 };
 
+
+struct ModelConstantBuffer
+{
+	bool isIndex16bit;
+	int padd1;
+	int padd2[2];
+};
+
 struct VtxAttrib
 {
     float3  Normal;

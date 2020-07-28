@@ -8,7 +8,7 @@ struct Material
 {
 
 	float3	DiffuseAlbedo;
-	float3	SpecularAlbedo;
+	float3	SpecularAlbedo;     //  F0
     float3  Normal;
 
 	float	Roughness;

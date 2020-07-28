@@ -9,13 +9,26 @@
 RaytracingAccelerationStructure Scene : register(t0, space0);
 RWTexture2D<float4> RenderTarget : register(u0);
 
+SamplerState sampsLinear : register(s0);
+
+TextureCube  g_texSky       :   register(t1);
+TextureCube  g_texSkyRem    :   register(t2);
+TextureCube  g_texSkyIem    :   register(t3);
+
+
+
 //  Local Root Signature
 ConstantBuffer<RayGenConstantBuffer> g_rayGenCB : register(b0);
 
 //  [MaterialID]
-ByteAddressBuffer           g_geomIndexBuffer[]     :   register(t16, space0);
-StructuredBuffer<VtxAttrib> g_geomAttrib[]          :   register(t16, space1);
+ConstantBuffer<ModelConstantBuffer> g_modelCB : register(b16);
+ByteAddressBuffer           l_geomIndexBuffer[]     :   register(t16, space1);
+StructuredBuffer<VtxAttrib> l_geomAttrib[]          :   register(t16, space2);
 
+
+
+//  Local Root Signature [Miss]
+TextureCube       l_texSky    :   register(t16);
 
 
 #define     HITGROUPOFFSET_RADIANCE      (0)
@@ -39,25 +52,34 @@ struct ShadowPayload
 uint3   GetIndices(uint materialID , uint primitiveID)
 {
 
-
-    //  16bit
-
-    uint indexOffset = primitiveID * 2 * 3;
-    uint dwordIndex = indexOffset & ~0x3;
-    uint2 packedIndices = g_geomIndexBuffer[materialID].Load2(dwordIndex);
-
     uint3 indices;
-    if (dwordIndex == indexOffset) {
+    if (g_modelCB.isIndex16bit) {
 
-        indices.x = ( packedIndices.x ) & 0xffff;
-        indices.y = (packedIndices.x >> 16) & 0xffff;
-        indices.z = (packedIndices.y  ) & 0xffff;
+        //  16bit
 
+        uint indexOffset = primitiveID * 2 * 3;
+        uint dwordIndex = indexOffset & ~0x3;
+        uint2 packedIndices = l_geomIndexBuffer[materialID].Load2(dwordIndex);
+
+        if (dwordIndex == indexOffset) {
+
+            indices.x = (packedIndices.x) & 0xffff;
+            indices.y = (packedIndices.x >> 16) & 0xffff;
+            indices.z = (packedIndices.y) & 0xffff;
+
+        } else {
+
+            indices.x = (packedIndices.x >> 16) & 0xffff;
+            indices.y = (packedIndices.y) & 0xffff;
+            indices.z = (packedIndices.y >> 16) & 0xffff;
+
+        }
     } else {
 
-        indices.x = (packedIndices.x >> 16) & 0xffff;
-        indices.y = (packedIndices.y) & 0xffff;
-        indices.z = (packedIndices.y >> 16) & 0xffff;
+
+        uint indexOffset = primitiveID * 4 * 3;
+
+        indices.xyz = l_geomIndexBuffer[materialID].Load4(indexOffset).xyz;
 
     }
 
@@ -153,10 +175,10 @@ bool        ShadowRayHitTest(float3 worldPosition,float3 lightdir)
     ray.Direction = lightdir;
     ray.TMin = 0.001;
     ray.TMax = 10000.0;
-    ShadowPayload payload = { false };
+    ShadowPayload payload = { true }; // miss shaderに到達した場合、falseになる
     //TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
     TraceRay(Scene,
-        RAY_FLAG_NONE,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
         ~0,     //  Instance Masks
         HITGROUPOFFSET_SHADOW,      //  RayContributionToHitGroupIndex                  :   
         0,                          //  MultiplierForGeometryContributionToHitGroupIndex :  BLAS内Geometryのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる
@@ -176,15 +198,19 @@ VtxAttrib   GetVtxAttrib(in uint MaterialID, in uint3 Indices, float2 barycentri
     VtxAttrib attr = (VtxAttrib)0;
 
 
-    VtxAttrib attr0 = g_geomAttrib[MaterialID].Load(Indices.x);
-    VtxAttrib attr1 = g_geomAttrib[MaterialID].Load(Indices.y);
-    VtxAttrib attr2 = g_geomAttrib[MaterialID].Load(Indices.z);
+    VtxAttrib attr0 = l_geomAttrib[MaterialID].Load(Indices.x);
+    VtxAttrib attr1 = l_geomAttrib[MaterialID].Load(Indices.y);
+    VtxAttrib attr2 = l_geomAttrib[MaterialID].Load(Indices.z);
 
 
     float3  factor = float3(1 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
 
     attr.Normal    = attr0.Normal * factor.x + attr1.Normal * factor.y + attr2.Normal * factor.z;
     attr.BaseColor = attr0.BaseColor * factor.x + attr1.BaseColor * factor.y + attr2.BaseColor * factor.z;
+
+    // To World Space
+    attr.Normal = mul( attr.Normal , (float3x3)ObjectToWorld4x3() );
+
 
     return attr;
 
@@ -230,15 +256,26 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
         DirectionalLight   lit;
 
         //lit.Dir = float3(0.f, 0.707106f, 0.707106f);
-        lit.Dir = float3(0.f, 0.5f, sqrt(3)/2.f);
+        lit.Dir = float3(0.f, 0.5f, -sqrt(3) / 2.f);
+        //lit.Dir = float3(0.f, 1.f, 0.f);
         lit.Irradiance = float3(1.f, 1.f, 1.f);
 
-
+        // Shadowing
         bool isShadow = ShadowRayHitTest(worldPosition, lit.Dir);
 
-        if (!isShadow) {
+        if (!isShadow)
+        {
             radiance += ComputeDirectionalLight(mat, lit, normalize(-WorldRayDirection()));
         }
+    }
+
+    {
+        //  Ambient Light
+
+
+        radiance += g_texSkyIem.SampleLevel(sampsLinear, mat.Normal, 0).xyz * mat.DiffuseAlbedo;
+
+
     }
 
 
@@ -253,6 +290,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 [shader("closesthit")]
 void MyClosestHitShader_Shadow(inout ShadowPayload payload, in MyAttributes attr)
 {
+    // 実際のところこちらは呼び出されない (RAY_FLAG_SKIP_CLOSEST_HIT_SHADERを指定しているため)
     payload.isHit = true;
 }
 
@@ -260,7 +298,26 @@ void MyClosestHitShader_Shadow(inout ShadowPayload payload, in MyAttributes attr
 [shader("miss")]
 void MyMissShader(inout RayPayload payload)
 {
-    payload.color = float4(0, 0, 0, 1);
+    
+    float3 rayDir = WorldRayDirection();
+    rayDir = normalize(rayDir);
+
+    float2 xz = rayDir.xz;
+
+    float theta = atan2(xz.y, xz.x);
+    float phai = asin(rayDir.y);
+
+
+    float2 texcoord;
+
+    texcoord.x = theta / (2 * _PI);
+    texcoord.y = - phai / (_PI) + 0.5f;
+
+
+    //float3 skyColor = l_texSky.SampleLevel(sampsLinear, texcoord, 0).xyz;
+    float3 skyColor = l_texSky.SampleLevel(sampsLinear, rayDir, 0).xyz;
+
+    payload.color = float4(skyColor, 1);
 }
 
 

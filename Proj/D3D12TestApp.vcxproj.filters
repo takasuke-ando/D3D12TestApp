@@ -73,5 +73,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Source\hlsl\SimpleDef.hlsli" />
+    <None Include="..\Source\hlsl\Lighting.hlslh">
+      <Filter>リソース ファイル\hlsl</Filter>
+    </None>
   </ItemGroup>
 </Project>
