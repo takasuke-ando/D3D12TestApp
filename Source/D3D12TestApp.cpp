@@ -6,6 +6,7 @@
 
 #include "GfxLib.h"
 
+#include <crtdbg.h>
 
 using namespace DirectX;
 
@@ -60,7 +61,8 @@ struct RayGenConstantBuffer
 struct ModelConstantBuffer
 {
 	uint32_t  isIndex16bit;
-	uint32_t	padd[3];
+	uint32_t  primitiveOffset;
+	uint32_t	padd[2];
 };
 
 struct RtVertex { float v1, v2, v3; };
@@ -143,6 +145,7 @@ struct GFX{
 	GfxLib::Shader			m_rtShaderLib;
 	GfxLib::StateObject		m_rtStateObject;
 	GfxLib::RtGeometry		m_rtGeometry;
+	GfxLib::RtModel			m_rtModel;
 	GfxLib::StructuredBuffer	m_rtGeomAttrib;
 	GfxLib::Texture2D		m_rtOutput;
 	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
@@ -211,6 +214,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
+
+	// メモリリーク検出
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 
     // TODO: ここにコードを挿入してください。
 
@@ -1054,7 +1060,10 @@ void	GFX::CreateRayTracingGeometry()
 
 	GfxLib::InterModelData interModelData;
 
-	if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny.obj")) {
+	if (!interModelData.InitializeFromObjFile(L"Media/Model/cube2.obj")) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/teapot.obj", 0.01f)) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny.obj", 2.f)) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bmw.obj", 0.01f)) {
 
 
 		// ?
@@ -1063,10 +1072,16 @@ void	GFX::CreateRayTracingGeometry()
 
 	}
 
-	//const float scale = 0.01f;	//	bmw
-	const float scale = 2.f;	//	bunny
+	m_rtModel.Initialize(interModelData);
 
-	const auto& triangles = interModelData.GetTriangle();
+#if 0
+
+	//const float scale = 0.01f;	//	bmw
+	//const float scale = 2.f;	//	bunny
+	//const float scale = 0.01f;	//	teapot
+	const float scale = 1.f;
+
+	const auto& triangles = interModelData.GetSubMeshes().at(0)->GetTriangle();
 	const auto& vertices = interModelData.GetVertex();
 
 
@@ -1115,6 +1130,7 @@ void	GFX::CreateRayTracingGeometry()
 
 		}
 		m_rtGeometry.Initialize(positions, sizeof(RtVertex), vertices_size, indices, GfxLib::Format::R16_UINT, indices_size);
+		delete[] indices;
 	} else {
 
 		uint32_t* indices = new uint32_t[indices_size];
@@ -1127,7 +1143,12 @@ void	GFX::CreateRayTracingGeometry()
 
 		}
 		m_rtGeometry.Initialize(positions, sizeof(RtVertex), vertices_size, indices, GfxLib::Format::R32_UINT, indices_size);
+		delete[] indices;
 	}
+
+	delete[] positions;
+	delete[] attribs;
+#endif
 
 #if 0
 	uint16_t indices[] =
@@ -1200,6 +1221,10 @@ void	GFX::CreateRayTracingResources()
 {
 
 	m_texSky.InitializeFromFile(L"Media\\Texture\\sky_bg.dds");
+
+
+	DXGI_FORMAT fmt = m_texSky.GetFormat();
+
 	m_texSkyRem.InitializeFromFile(L"Media\\Texture\\sky_rem.dds");
 	m_texSkyIem.InitializeFromFile(L"Media\\Texture\\sky_iem.dds");
 
@@ -1210,7 +1235,8 @@ void	GFX::CreateRayTracingResources()
 void	GFX::BuildAccelerationStructures()
 {
 
-	m_rtBLAS.Initialize(&m_rtGeometry, 1);
+	//m_rtBLAS.Initialize(&m_rtGeometry, 1);
+	m_rtBLAS.Initialize( &m_rtModel.GetGeomDescs().at(0), m_rtModel.GetGeomDescs().size());
 
 	GfxLib::BottomLevelAccelerationStructure* tlas[] = {
 		&m_rtBLAS,
@@ -1295,6 +1321,7 @@ void	GFX::Finalize()
 	m_rtShaderLib.Finalize();
 	m_rtStateObject.Finalize();
 	m_rtGeometry.Finalize();
+	m_rtModel.Finalize();
 	m_rtOutput.Finalize();
 	m_rtBLAS.Finalize();
 	m_rtTLAS.Finalize();
@@ -1618,7 +1645,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	XMMATRIX mtxCamera = XMMatrixIdentity();
 	//mtxCamera = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
-	mtxCamera.r[3] = XMVectorSet(0.f, 2.f, -5.f, 0.f);
+	mtxCamera.r[3] = XMVectorSet(0.f, 0.f, -5.f, 0.f);
 
 	XMMATRIX mtxRotate  = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
 
@@ -1649,6 +1676,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	//rootArguments.cb = m_rayGenCB;
 
 	// LocalRootArguments
+#if 0
 	{
 
 		ModelConstantBuffer  modelCB = {};
@@ -1661,13 +1689,14 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 		// LocalRootSignatureだから配列じゃなくてよいか？
 		GfxLib::DescriptorBuffer	indexSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
-		indexSrvDesc.CopyHandle(0, m_rtGeometry.GetIndexBufferSRV());
+		indexSrvDesc.CopyHandle(0, m_rtModel.GetIndexBufferSRV());
 		rootArguments.indexSRV = indexSrvDesc.GetGPUDescriptorHandle();
 
 		GfxLib::DescriptorBuffer	vtxSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
-		vtxSrvDesc.CopyHandle(0, m_rtGeomAttrib.GetSrvDescHandle());
+		vtxSrvDesc.CopyHandle(0, m_rtModel.GetGeomAttributeSRV());
 		rootArguments.vtxSRV = vtxSrvDesc.GetGPUDescriptorHandle();
 	}
+#endif
 
 	// LocalRootArguments for RayGen
 	{
@@ -1697,10 +1726,58 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	missShaderTable.AddRecord(missShaderIdentifier1, &rootArguments_Miss, sizeof(rootArguments_Miss));
 
 
-	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, TRACE_TYPE_NUM, shaderIdentifierSize + sizeof(RootArguments));
-	for (uint32_t i = 0; i < TRACE_TYPE_NUM; ++i) {
-		const void* hitGroupShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_hitGroupName[i]);
-		hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, &rootArguments, sizeof(RootArguments));
+	auto& subGroupVec = m_rtModel.GetSubGroups();
+	GfxLib::ShaderTable  hitGroupShaderTable(cmdList, TRACE_TYPE_NUM* (uint32_t)subGroupVec.size(), shaderIdentifierSize + sizeof(RootArguments));
+
+	{
+
+		// LocalRootSignatureだから配列じゃなくてよいか？
+
+		// モデル全体のパラメータ
+
+
+		#if 0
+		GfxLib::DescriptorBuffer	indexSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
+		indexSrvDesc.CopyHandle(0, m_rtGeometry.GetIndexBufferSRV());
+		rootArguments.indexSRV = indexSrvDesc.GetGPUDescriptorHandle();
+
+		GfxLib::DescriptorBuffer	vtxSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
+		vtxSrvDesc.CopyHandle(0, m_rtGeomAttrib.GetSrvDescHandle());
+		rootArguments.vtxSRV = vtxSrvDesc.GetGPUDescriptorHandle();
+
+#endif
+
+		GfxLib::DescriptorBuffer	indexSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
+		indexSrvDesc.CopyHandle(0, m_rtModel.GetIndexBufferSRV());
+		rootArguments.indexSRV = indexSrvDesc.GetGPUDescriptorHandle();
+
+		GfxLib::DescriptorBuffer	vtxSrvDesc = cmdList.AllocateDescriptorBuffer(1/*IndexBufferCount*/);
+		vtxSrvDesc.CopyHandle(0, m_rtModel.GetGeomAttributeSRV());
+		rootArguments.vtxSRV = vtxSrvDesc.GetGPUDescriptorHandle();
+
+		for (auto subgroup : subGroupVec) {
+			//RootArguments rootArgMaterial = rootArguments;
+
+			// マテリアル毎のパラメータ
+
+			ModelConstantBuffer  modelCB = {};
+
+			modelCB.isIndex16bit = m_rtModel.GetIndexFormat() == GfxLib::Format::R16_UINT;
+			modelCB.primitiveOffset = subgroup->GetStartIndex() / 3;
+
+			GfxLib::GpuBufferRange cbBuffer = cmdList.AllocateGpuBuffer(sizeof(modelCB), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+			memcpy(cbBuffer.GetCpuAddr(), &modelCB, sizeof(modelCB));
+			rootArguments.cb = cbBuffer.GetGpuAddr();
+
+
+			for (uint32_t i = 0; i < TRACE_TYPE_NUM; ++i) {
+				
+				// TraceType毎にLocalRootSignatureは同じにしている（別でもよい）
+
+				const void* hitGroupShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_hitGroupName[i]);
+				hitGroupShaderTable.AddRecord(hitGroupShaderIdentifier, &rootArguments, sizeof(RootArguments));
+			}
+		}
 	}
 
 

@@ -25,7 +25,7 @@ struct RayGenConstantBuffer
 struct ModelConstantBuffer
 {
 	bool isIndex16bit;
-	int padd1;
+	uint primitiveOffset;   //  モデル全体でのプリミティブ開始位置
 	int padd2[2];
 };
 

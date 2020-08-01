@@ -20,7 +20,12 @@ TextureCube  g_texSkyIem    :   register(t3);
 //  Local Root Signature
 ConstantBuffer<RayGenConstantBuffer> g_rayGenCB : register(b0);
 
-//  [MaterialID]
+
+//  l_geomIndexBuffer[MaterialID]
+//  今のところ意味なし…
+//  モデル内マテリアル毎にHitGroupを分けるのではなく同一にして
+//  GeometryIndex()で処理を分けるのであればできるがあまり筋は良くない気がする
+
 ConstantBuffer<ModelConstantBuffer> g_modelCB : register(b16);
 ByteAddressBuffer           l_geomIndexBuffer[]     :   register(t16, space1);
 StructuredBuffer<VtxAttrib> l_geomAttrib[]          :   register(t16, space2);
@@ -34,6 +39,7 @@ TextureCube       l_texSky    :   register(t16);
 #define     HITGROUPOFFSET_RADIANCE      (0)
 #define     HITGROUPOFFSET_SHADOW        (1)
 
+#define     TRACE_TYPE_NUM        (2)
 
 
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
@@ -51,6 +57,8 @@ struct ShadowPayload
 
 uint3   GetIndices(uint materialID , uint primitiveID)
 {
+
+    primitiveID = g_modelCB.primitiveOffset + primitiveID;
 
     uint3 indices;
     if (g_modelCB.isIndex16bit) {
@@ -140,7 +148,7 @@ void MyRaygenShader()
             RAY_FLAG_NONE, 
             ~0,     //  Instance Masks
             0,      //  RayContributionToHitGroupIndex                  :   
-            0,      //  MultiplierForGeometryContributionToHitGroupIndex :  BLAS内Geometryのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる
+            TRACE_TYPE_NUM,      //  MultiplierForGeometryContributionToHitGroupIndex :  BLAS内Geometryのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる
             0,      //  MissShaderIndex
             ray, 
             payload);
@@ -181,7 +189,7 @@ bool        ShadowRayHitTest(float3 worldPosition,float3 lightdir)
         RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
         ~0,     //  Instance Masks
         HITGROUPOFFSET_SHADOW,      //  RayContributionToHitGroupIndex                  :   
-        0,                          //  MultiplierForGeometryContributionToHitGroupIndex :  BLAS内Geometryのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる
+        TRACE_TYPE_NUM,             //  MultiplierForGeometryContributionToHitGroupIndex :  BLAS内Geometryのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる
         HITGROUPOFFSET_SHADOW,      //  MissShaderIndex
         ray,
         payload);
@@ -250,7 +258,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     mat.DiffuseAlbedo = vtx.BaseColor;
     mat.SpecularAlbedo = float3(0.04f, 0.04f, 0.04f);
     mat.Roughness = 0.2f;
-    mat.Normal = vtx.Normal;
+    mat.Normal = normalize( vtx.Normal );
 
     {
         DirectionalLight   lit;
