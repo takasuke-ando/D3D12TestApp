@@ -143,10 +143,11 @@ struct GFX{
 	GfxLib::RootSignature	localRootSigRayGen;
 	RayGenConstantBuffer	m_rayGenCB;
 	GfxLib::Shader			m_rtShaderLib;
+	GfxLib::Shader			m_rtShaderLibModel;
 	GfxLib::StateObject		m_rtStateObject;
-	GfxLib::RtGeometry		m_rtGeometry;
+	//GfxLib::RtGeometry		m_rtGeometry;
 	GfxLib::RtModel			m_rtModel;
-	GfxLib::StructuredBuffer	m_rtGeomAttrib;
+	//GfxLib::StructuredBuffer	m_rtGeomAttrib;
 	GfxLib::Texture2D		m_rtOutput;
 	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
 	GfxLib::BottomLevelAccelerationStructure	m_rtBLAS;
@@ -375,8 +376,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_LBUTTONDOWN:
 		{
 			POINT pt;
-			pt.x = LOWORD(lParam);
-			pt.y = HIWORD(lParam);
+			pt.x = (int16_t)LOWORD(lParam);
+			pt.y = (int16_t)HIWORD(lParam);
 
 			if (g_pGfx) g_pGfx->OnLButtonDown(pt);
 
@@ -386,8 +387,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_LBUTTONUP:
 		{
 			POINT pt;
-			pt.x = LOWORD(lParam);
-			pt.y = HIWORD(lParam);
+			pt.x = (int16_t)LOWORD(lParam);
+			pt.y = (int16_t)HIWORD(lParam);
 
 			if (g_pGfx) g_pGfx->OnLButtonUp(pt);
 
@@ -397,8 +398,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_MOUSEMOVE:
 		{
 			POINT pt;
-			pt.x = LOWORD(lParam);
-			pt.y = HIWORD(lParam);
+			pt.x = (int16_t)LOWORD(lParam);
+			pt.y = (int16_t)HIWORD(lParam);
 
 			if (g_pGfx) g_pGfx->OnMouseMove(pt);
 		}
@@ -859,7 +860,8 @@ inputLayout.Initialize(_countof(inputElement), inputElement);
 	{
 	// RayTracing
 
-		m_rtShaderLib.CreateFromFile(L"../x64/debug/RayTracing.cso");
+		m_rtShaderLib.CreateFromFile(L"Media/Shader/GfxRayTracing.cso");
+		m_rtShaderLibModel.CreateFromFile(L"Media/Shader/GfxRayTracingModel.cso");
 
 		float aspect = swapChain.GetHeight() / (float)swapChain.GetWidth();
 
@@ -956,8 +958,15 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		D3D12_SHADER_BYTECODE dxillib = m_rtShaderLib.GetD3D12ShaderBytecode();
 		subobj->SetDXILLibrary(dxillib);
 		subobj->AddExport(c_raygenShaderName);
-		for( auto s : c_closestHitShaderName )	subobj->AddExport(s);
 		for( auto s : c_missShaderName )		subobj->AddExport(s);
+	}
+
+	{
+		auto* subobj = stateDesc.CreateSubObject<GfxLib::PipelineState_DxilLibrary>();
+
+		D3D12_SHADER_BYTECODE dxillib = m_rtShaderLibModel.GetD3D12ShaderBytecode();
+		subobj->SetDXILLibrary(dxillib);
+		for (auto s : c_closestHitShaderName)	subobj->AddExport(s);
 	}
 
 	for ( uint32_t i = 0 ; i < TRACE_TYPE_NUM; ++i )
@@ -1004,6 +1013,7 @@ void	GFX::CreateRayTracingPipelineStateObject()
 		rootSignatureAssociation->SetRootSignature(localRootSignature);
 		rootSignatureAssociation->AddExport(c_raygenShaderName);
 	}
+
 
 	{
 		//	Local Root Signature for [miss]
@@ -1060,10 +1070,11 @@ void	GFX::CreateRayTracingGeometry()
 
 	GfxLib::InterModelData interModelData;
 
-	if (!interModelData.InitializeFromObjFile(L"Media/Model/cube2.obj")) {
-	//if (!interModelData.InitializeFromObjFile(L"Media/Model/teapot.obj", 0.01f)) {
-	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny.obj", 2.f)) {
-	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bmw.obj", 0.01f)) {
+	if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj")) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube2.obj")) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/teapot/teapot.obj", 0.01f)) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny/bunny.obj", 2.f)) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bmw/bmw.obj", 0.01f)) {
 
 
 		// ?
@@ -1319,14 +1330,15 @@ void	GFX::Finalize()
 	localRootSigRayGen.Finalize();
 	localRootSigMiss.Finalize();
 	m_rtShaderLib.Finalize();
+	m_rtShaderLibModel.Finalize();
 	m_rtStateObject.Finalize();
-	m_rtGeometry.Finalize();
+	//m_rtGeometry.Finalize();
 	m_rtModel.Finalize();
 	m_rtOutput.Finalize();
 	m_rtBLAS.Finalize();
 	m_rtTLAS.Finalize();
 	m_rtScratch.Finalize();
-	m_rtGeomAttrib.Finalize();
+	//m_rtGeomAttrib.Finalize();
 	m_texSky.Finalize();
 	m_texSkyRem.Finalize();
 	m_texSkyIem.Finalize();
@@ -1855,8 +1867,10 @@ void	GFX::OnLButtonUp(POINT pt)
 void	GFX::OnMouseMove(POINT pt)
 {
 	if (m_MouseMove) {
-		m_camAngX += (pt.x - m_lastMouseDown.x) * 0.001f;
-		m_camAngY += (pt.y - m_lastMouseDown.y) * 0.001f;
+		m_camAngX += (pt.x - m_lastMouseDown.x) * 0.003f;
+		m_camAngY += (pt.y - m_lastMouseDown.y) * 0.003f;
+
+		GFX_INFO(L"MouseMove: (%d,%d)\n",pt.x,pt.y);
 
 		m_lastMouseDown = pt;
 	}
