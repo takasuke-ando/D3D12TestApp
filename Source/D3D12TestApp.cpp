@@ -137,6 +137,7 @@ struct GFX{
 
 
 	//	Ray Tracing
+#if 0
 	GfxLib::RootSignature	globalRootSig;
 	GfxLib::RootSignature	localRootSig;
 	GfxLib::RootSignature	localRootSigMiss;
@@ -145,6 +146,10 @@ struct GFX{
 	GfxLib::Shader			m_rtShaderLib;
 	GfxLib::Shader			m_rtShaderLibModel;
 	GfxLib::StateObject		m_rtStateObject;
+#endif
+
+	GfxLib::RayTracingRenderer	m_RTRender;
+
 	//GfxLib::RtGeometry		m_rtGeometry;
 	GfxLib::RtModel			m_rtModel;
 	//GfxLib::StructuredBuffer	m_rtGeomAttrib;
@@ -173,8 +178,8 @@ struct GFX{
 	void	OnLButtonUp(POINT pt);
 	void	OnMouseMove(POINT pt);
 
-	void	CreateRayTracingRootSignature();
-	void	CreateRayTracingPipelineStateObject();
+	//void	CreateRayTracingRootSignature();
+	//void	CreateRayTracingPipelineStateObject();
 	void	CreateRayTracingGeometry();
 	void	CreateRayTracingResources();
 	void	BuildAccelerationStructures();
@@ -850,22 +855,19 @@ inputLayout.Initialize(_countof(inputElement), inputElement);
 
 #endif
 
-	{
-
-
-
-	}
-
 
 	{
 	// RayTracing
-
+#if 0
 		m_rtShaderLib.CreateFromFile(L"Media/Shader/GfxRayTracing.cso");
 		m_rtShaderLibModel.CreateFromFile(L"Media/Shader/GfxRayTracingModel.cso");
+#endif
 
 		float aspect = swapChain.GetHeight() / (float)swapChain.GetWidth();
 
 		float border = 0.1f;
+
+#if 0
 		m_rayGenCB.viewport = { -1.0f,  aspect, 1.0f, -aspect };
 		m_rayGenCB.stencil = { -1.0f+border, -1.0f+border, 1.0f-border, 1.0f-border };
 
@@ -874,10 +876,14 @@ inputLayout.Initialize(_countof(inputElement), inputElement);
 		mtxCamera.r[3] = XMVectorSet(0.f,2.f,-5.f,0.f);
 
 		m_rayGenCB.mtxCamera = XMMatrixTranspose(mtxCamera);
+#endif
 
-		CreateRayTracingRootSignature();
+		m_RTRender.Initialize();
+
+
+		//CreateRayTracingRootSignature();
 		
-		CreateRayTracingPipelineStateObject();
+		//CreateRayTracingPipelineStateObject();
 
 		CreateRayTracingGeometry();
 
@@ -893,7 +899,7 @@ inputLayout.Initialize(_countof(inputElement), inputElement);
 }
 
 
-
+#if 0
 void	GFX::CreateRayTracingRootSignature()
 {
 
@@ -944,8 +950,10 @@ void	GFX::CreateRayTracingRootSignature()
 
 		localRootSigRayGen.Initialize(rootSigDesc);
 }
+#endif
 
 
+#if 0
 void	GFX::CreateRayTracingPipelineStateObject()
 {
 
@@ -1063,6 +1071,7 @@ void	GFX::CreateRayTracingPipelineStateObject()
 	}
 
 }
+#endif
 
 
 void	GFX::CreateRayTracingGeometry()
@@ -1325,6 +1334,9 @@ void	GFX::Finalize()
 	sampsLinear.Finalize();
 
 
+	m_RTRender.Finalize();
+
+#if 0
 	globalRootSig.Finalize();
 	localRootSig.Finalize();
 	localRootSigRayGen.Finalize();
@@ -1332,6 +1344,7 @@ void	GFX::Finalize()
 	m_rtShaderLib.Finalize();
 	m_rtShaderLibModel.Finalize();
 	m_rtStateObject.Finalize();
+#endif
 	//m_rtGeometry.Finalize();
 	m_rtModel.Finalize();
 	m_rtOutput.Finalize();
@@ -1646,6 +1659,42 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::ShaderResource, GfxLib::ResourceStates::UnorderedAccess);
 
 
+	GfxLib::RayTracing::SceneInfo sceneInfo = {};
+
+
+	XMMATRIX mtxCamera = XMMatrixIdentity();
+	//mtxCamera = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
+	mtxCamera.r[3] = XMVectorSet(0.f, 0.f, -5.f, 0.f);
+
+	XMMATRIX mtxRotate = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
+
+	mtxCamera = XMMatrixMultiply(mtxCamera, mtxRotate);
+
+	sceneInfo.mtxCamera = mtxCamera;
+
+
+	sceneInfo.texSky = &m_texSky;
+	sceneInfo.texSkyRem = &m_texSkyRem;
+	sceneInfo.texSkyIem = &m_texSkyIem;
+
+
+	float aspect = swapChain.GetHeight() / (float)swapChain.GetWidth();
+	sceneInfo.vp = { -1.0f,  aspect, 1.0f, -aspect };
+
+	sceneInfo.Width = swapChain.GetWidth();
+	sceneInfo.Height = swapChain.GetHeight();
+
+
+	sceneInfo.BLAS = &m_rtBLAS;
+	sceneInfo.TLAS = &m_rtTLAS;
+
+
+	sceneInfo.rtModel = &m_rtModel;
+
+	m_RTRender.Render(cmdList, m_rtOutput.GetUavDescHandle(), sceneInfo);
+
+
+#if 0
 	const void* rayGenShaderIdentifier = m_rtStateObject.GetShaderIdentifier(c_raygenShaderName);
 	const void* missShaderIdentifier0 = m_rtStateObject.GetShaderIdentifier(c_missShaderName[0]);
 	const void* missShaderIdentifier1 = m_rtStateObject.GetShaderIdentifier(c_missShaderName[1]);
@@ -1847,6 +1896,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	DispatchRays(cmdList.GetD3DCommandList4(), m_rtStateObject.GetD3DStateObject(), &dispatchDesc);
 
+#endif
 
 	cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::UnorderedAccess, GfxLib::ResourceStates::ShaderResource);
 }
