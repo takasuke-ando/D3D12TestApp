@@ -26,6 +26,7 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 HWND	g_hWnd;
 
+#if 0
 namespace GlobalRootSignatureParams {
 	enum Value {
 		OutputViewSlot = 0,
@@ -76,7 +77,37 @@ struct RtAttrib {
 
 };
 
+#endif
 
+namespace {
+
+
+	//	ファイル名の位置を取得
+	uint32_t	FindFileName(const wchar_t* filepath)
+	{
+
+		uint32_t idx = 0;
+		uint32_t lastidx = 0;
+
+		while (filepath[idx] != 0)
+		{
+			if (filepath[idx] == L'/' || filepath[idx] == L'\\') {
+				lastidx = idx + 1;
+			}
+
+
+			++idx;
+		}
+
+		return lastidx;
+
+
+	}
+
+};
+
+
+#if 0
 namespace Config
 {
 
@@ -95,6 +126,8 @@ enum {
 
 };
 
+
+
 const wchar_t* c_hitGroupName[] = {
 	L"MyHitGroup",
 	L"MyHitGroup_Shadow",
@@ -108,6 +141,9 @@ const wchar_t* c_missShaderName[] = {
 	L"MyMissShader",
 	L"MyMissShader_Shadow",
 };
+
+#endif
+
 
 struct GFX{
 	GfxLib::CoreSystem		gfxCore;
@@ -165,6 +201,7 @@ struct GFX{
 
 
 	float		m_camAngX, m_camAngY;
+	float		m_camDist;
 	POINT	m_lastMouseDown;
 	bool	m_MouseMove;
 
@@ -179,6 +216,7 @@ struct GFX{
 	void	OnLButtonDown(POINT pt);
 	void	OnLButtonUp(POINT pt);
 	void	OnMouseMove(POINT pt);
+	void	OnWheel(int wheel);
 
 	//void	CreateRayTracingRootSignature();
 	//void	CreateRayTracingPipelineStateObject();
@@ -411,6 +449,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			if (g_pGfx) g_pGfx->OnMouseMove(pt);
 		}
 		break;
+	case WM_MOUSEWHEEL:
+		{
+			g_pGfx->OnWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+		}
+		break;
 	case WM_CLOSE:
 		{
 
@@ -472,6 +515,7 @@ bool	GFX::Initialize()
 	m_camAngX = 0;
 	m_camAngY = 0;
 	m_MouseMove = false;
+	m_camDist = 5;
 
 	m_lastMouseDown = POINT{ 0,0 };
 
@@ -1083,13 +1127,21 @@ void	GFX::CreateRayTracingGeometry()
 
 	GfxLib::InterModelData interModelData;
 
+	//std::wstring objfilepath = L"Media/Model/cube/cube.obj";
+	float scale = 1.f;
+	//std::wstring objfilepath = L"Media/Model/bunny/bunny.obj";
+	std::wstring objfilepath = L"Media/Model/bmw/bmw.obj";
+	//float scale = 2.f;
+
+
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj")) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube2.obj")) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/teapot/teapot.obj", 0.01f)) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny/bunny.obj", 2.f)) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bmw/bmw.obj", 0.01f)) {
-	if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj", 1.f)) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj", 1.f)) {
 
+	if (!interModelData.InitializeFromObjFile(objfilepath.c_str(),scale)) {
 
 		// ?
 
@@ -1098,7 +1150,14 @@ void	GFX::CreateRayTracingGeometry()
 
 	}
 
-	m_TexContainer.SetBasePath(L"Media/Model/cube/");
+
+	uint32_t filenameidx = FindFileName(objfilepath.c_str());
+
+	// .mtlのパスに変換する
+	std::wstring objbasepath(objfilepath.c_str(), filenameidx);
+	
+
+	m_TexContainer.SetBasePath(objbasepath.c_str());
 
 	m_rtModel.Initialize(interModelData, m_TexContainer);
 
@@ -1467,7 +1526,7 @@ void	GFX::Render()
 				CBData cbdata;
 
 				cbdata.world = XMMatrixIdentity();
-				cbdata.view = XMMatrixTranspose(XMMatrixLookAtLH(XMVectorSet(0.f, 0.f, 5.f, 0.f), XMVectorZero(), XMVectorSet(0.f, 1.f, 0.f, 0.f)));
+				cbdata.view = XMMatrixTranspose(XMMatrixLookAtLH(XMVectorSet(0.f, 0.f, m_camDist, 0.f), XMVectorZero(), XMVectorSet(0.f, 1.f, 0.f, 0.f)));
 				cbdata.proj = XMMatrixTranspose(XMMatrixPerspectiveFovLH(3.14159f / 4.f, 1.f, 0.1f, 100.f));
 
 
@@ -1675,7 +1734,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	XMMATRIX mtxCamera = XMMatrixIdentity();
 	//mtxCamera = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
-	mtxCamera.r[3] = XMVectorSet(0.f, 0.f, -5.f, 0.f);
+	mtxCamera.r[3] = XMVectorSet(0.f, 0.f, -m_camDist, 0.f);
 
 	XMMATRIX mtxRotate = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
 
@@ -1935,6 +1994,14 @@ void	GFX::OnMouseMove(POINT pt)
 
 		m_lastMouseDown = pt;
 	}
+}
 
+
+void	GFX::OnWheel(int wheel)
+{
+
+	m_camDist += (m_camDist * wheel * -0.001f);
+
+	if (m_camDist <= 0.1f) m_camDist = 0.1f;
 
 }
