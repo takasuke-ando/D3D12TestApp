@@ -145,7 +145,7 @@ void MyRaygenShader()
         RayPayload payload = { float4(0, 0, 0, 0) };
         //TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
         TraceRay(Scene, 
-            RAY_FLAG_NONE, 
+            RAY_FLAG_NONE,
             ~0,     //  Instance Masks
             0,      //  RayContributionToHitGroupIndex                  :   
             TRACE_TYPE_NUM,      //  MultiplierForGeometryContributionToHitGroupIndex :  BLAS内Geometryのインデックスに、この値を掛けた結果がHitGroupのインデックスとなる

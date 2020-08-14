@@ -148,10 +148,12 @@ struct GFX{
 	GfxLib::StateObject		m_rtStateObject;
 #endif
 
+
 	GfxLib::RayTracingRenderer	m_RTRender;
 
 	//GfxLib::RtGeometry		m_rtGeometry;
 	GfxLib::RtModel			m_rtModel;
+	GfxLib::TextureContainer	m_TexContainer;
 	//GfxLib::StructuredBuffer	m_rtGeomAttrib;
 	GfxLib::Texture2D		m_rtOutput;
 	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
@@ -881,6 +883,8 @@ inputLayout.Initialize(_countof(inputElement), inputElement);
 		m_RTRender.Initialize();
 
 
+		m_TexContainer.Initialize();
+
 		//CreateRayTracingRootSignature();
 		
 		//CreateRayTracingPipelineStateObject();
@@ -1079,20 +1083,24 @@ void	GFX::CreateRayTracingGeometry()
 
 	GfxLib::InterModelData interModelData;
 
-	if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj")) {
+	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj")) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube2.obj")) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/teapot/teapot.obj", 0.01f)) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bunny/bunny.obj", 2.f)) {
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/bmw/bmw.obj", 0.01f)) {
+	if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj", 1.f)) {
 
 
 		// ?
+
 
 		return;
 
 	}
 
-	m_rtModel.Initialize(interModelData);
+	m_TexContainer.SetBasePath(L"Media/Model/cube/");
+
+	m_rtModel.Initialize(interModelData, m_TexContainer);
 
 #if 0
 
@@ -1105,11 +1113,13 @@ void	GFX::CreateRayTracingGeometry()
 	const auto& vertices = interModelData.GetVertex();
 
 
+
 	uint32_t indices_size = (uint32_t)triangles.size() * 3;
 
 	uint32_t vertices_size = (uint32_t)vertices.size();
 	RtVertex* positions = new RtVertex[vertices_size];
 	RtAttrib* attribs = new RtAttrib[vertices_size];
+
 
 
 	uint32_t i = 0;
@@ -1335,6 +1345,7 @@ void	GFX::Finalize()
 
 
 	m_RTRender.Finalize();
+	m_TexContainer.Finalize();
 
 #if 0
 	globalRootSig.Finalize();
