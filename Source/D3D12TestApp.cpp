@@ -202,6 +202,7 @@ struct GFX{
 
 	float		m_camAngX, m_camAngY;
 	float		m_camDist;
+	GfxLib::Float3	m_camCenter;
 	POINT	m_lastMouseDown;
 	bool	m_MouseMove;
 
@@ -217,6 +218,7 @@ struct GFX{
 	void	OnLButtonUp(POINT pt);
 	void	OnMouseMove(POINT pt);
 	void	OnWheel(int wheel);
+	void	OnKeyDown(WPARAM wParam,LPARAM lParam);
 
 	//void	CreateRayTracingRootSignature();
 	//void	CreateRayTracingPipelineStateObject();
@@ -454,6 +456,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			g_pGfx->OnWheel(GET_WHEEL_DELTA_WPARAM(wParam));
 		}
 		break;
+	case WM_KEYDOWN:
+		{
+			g_pGfx->OnKeyDown(wParam, lParam);
+		}
+		break;
 	case WM_CLOSE:
 		{
 
@@ -514,6 +521,7 @@ bool	GFX::Initialize()
 
 	m_camAngX = 0;
 	m_camAngY = 0;
+	m_camCenter = { 0.f,0.f,0.f };
 	m_MouseMove = false;
 	m_camDist = 5;
 
@@ -1122,16 +1130,23 @@ void	GFX::CreateRayTracingPipelineStateObject()
 #endif
 
 
+
 void	GFX::CreateRayTracingGeometry()
 {
+
 
 	GfxLib::InterModelData interModelData;
 
 	//std::wstring objfilepath = L"Media/Model/cube/cube.obj";
 	float scale = 1.f;
-	//std::wstring objfilepath = L"Media/Model/bunny/bunny.obj";
-	std::wstring objfilepath = L"Media/Model/bmw/bmw.obj";
+	std::wstring objfilepath = L"Media/Model/bunny/bunny.obj";
+	//std::wstring objfilepath = L"Media/Model/bmw/bmw.obj";
+	//std::wstring objfilepath = L"Media/Model/teapot/teapot.obj";
+	//std::wstring objfilepath = L"Media/Model/sibenik/sibenik.obj";
+	//std::wstring objfilepath = L"Media/Model/sponza/sponza.obj";
 	//float scale = 2.f;
+
+
 
 
 	//if (!interModelData.InitializeFromObjFile(L"Media/Model/cube/cube.obj")) {
@@ -1145,10 +1160,11 @@ void	GFX::CreateRayTracingGeometry()
 
 		// ?
 
-
 		return;
 
 	}
+
+
 
 
 	uint32_t filenameidx = FindFileName(objfilepath.c_str());
@@ -1456,6 +1472,67 @@ void	GFX::Update()
 
 	gfxCore.Update();
 
+
+	{ // Camera Update
+
+		XMMATRIX mtxRotate = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
+
+		BYTE KeyState[256] = {};
+		GetKeyboardState(KeyState);
+
+		float speed = m_camDist*0.01f;
+
+		GfxLib::Float3 Forward = mtxRotate.r[2];
+		GfxLib::Float3 Right = mtxRotate.r[0];
+		GfxLib::Float3 Up = { 0.f,1.f,0.f };
+
+		//	Forward
+
+		if (KeyState['W'] & 0xf0) {
+
+			m_camCenter += Forward* speed;
+
+		}
+
+		if (KeyState['S'] & 0xf0) {
+
+			m_camCenter -= Forward * speed;
+
+		}
+
+
+		if (KeyState['D'] & 0xf0) {
+
+			m_camCenter += Right * speed;
+
+		}
+
+		if (KeyState['A'] & 0xf0) {
+
+			m_camCenter -= Right * speed;
+
+		}
+
+
+		if (KeyState[VK_UP] & 0xf0) {
+
+			m_camCenter += Up * speed;
+
+		}
+
+		if (KeyState[VK_DOWN] & 0xf0) {
+
+			m_camCenter -= Up * speed;
+
+		}
+
+	}
+
+
+
+
+
+
 }
 
 void	GFX::Render()
@@ -1740,6 +1817,8 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	mtxCamera = XMMatrixMultiply(mtxCamera, mtxRotate);
 
+	mtxCamera.r[3] += m_camCenter.ToXMVECTOR(0.f);
+
 	sceneInfo.mtxCamera = mtxCamera;
 
 
@@ -1994,6 +2073,21 @@ void	GFX::OnMouseMove(POINT pt)
 
 		m_lastMouseDown = pt;
 	}
+}
+
+void	GFX::OnKeyDown(WPARAM wParam, LPARAM lParam)
+{
+	if (wParam == VK_HOME) {
+
+
+		m_camAngY = m_camAngX = 0.f;
+		m_camDist = 5.f;
+		m_camCenter = GfxLib::Float3{ 0.f,0.f,0.f };
+
+
+	}
+
+
 }
 
 
