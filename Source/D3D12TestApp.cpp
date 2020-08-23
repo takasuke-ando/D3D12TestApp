@@ -191,7 +191,8 @@ struct GFX{
 	GfxLib::RtModel			m_rtModel;
 	GfxLib::TextureContainer	m_TexContainer;
 	//GfxLib::StructuredBuffer	m_rtGeomAttrib;
-	GfxLib::Texture2D		m_rtOutput;
+	//GfxLib::Texture2D		m_rtOutput;
+	GfxLib::RtSceneTargets		m_rtTarget;
 	GfxLib::TopLevelAccelerationStructure	m_rtTLAS;
 	GfxLib::BottomLevelAccelerationStructure	m_rtBLAS;
 	GfxLib::Buffer			m_rtScratch;
@@ -199,6 +200,8 @@ struct GFX{
 	GfxLib::Texture2D		m_texSkyRem;
 	GfxLib::Texture2D		m_texSkyIem;
 
+
+	double		m_AppTime;	//	アプリが起動してからの時間
 
 	float		m_camAngX, m_camAngY;
 	float		m_camDist;
@@ -524,6 +527,7 @@ bool	GFX::Initialize()
 	m_camCenter = { 0.f,0.f,0.f };
 	m_MouseMove = false;
 	m_camDist = 5;
+	m_AppTime = 0;
 
 	m_lastMouseDown = POINT{ 0,0 };
 
@@ -1131,6 +1135,7 @@ void	GFX::CreateRayTracingPipelineStateObject()
 
 
 
+
 void	GFX::CreateRayTracingGeometry()
 {
 
@@ -1139,12 +1144,17 @@ void	GFX::CreateRayTracingGeometry()
 
 	//std::wstring objfilepath = L"Media/Model/cube/cube.obj";
 	float scale = 1.f;
-	std::wstring objfilepath = L"Media/Model/bunny/bunny.obj";
+	//std::wstring objfilepath = L"Media/Model/bunny/bunny.obj";
 	//std::wstring objfilepath = L"Media/Model/bmw/bmw.obj";
 	//std::wstring objfilepath = L"Media/Model/teapot/teapot.obj";
 	//std::wstring objfilepath = L"Media/Model/sibenik/sibenik.obj";
 	//std::wstring objfilepath = L"Media/Model/sponza/sponza.obj";
+	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Sphere.obj";
+	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Original.obj";
+	std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Water.obj";
+	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Glossy-Floor.obj";
 	//float scale = 2.f;
+	//std::wstring objfilepath = L"Media/Model/fireplace_room/fireplace_room.obj";
 
 
 
@@ -1381,7 +1391,12 @@ void	GFX::BuildAccelerationStructures()
 void	GFX::CreateRayTracingOutputResource()
 {
 
-	m_rtOutput.InitializeUAV(GfxLib::Format::R8G8B8A8_UNORM,swapChain.GetWidth(),swapChain.GetHeight(),1,GfxLib::ResourceStates::ShaderResource);
+	//m_rtOutput.InitializeUAV(GfxLib::Format::R8G8B8A8_UNORM,swapChain.GetWidth(),swapChain.GetHeight(),1,GfxLib::ResourceStates::ShaderResource);
+
+
+	GfxLib::RtSceneTargets::INITIALIZE_PARAM	initParam = { swapChain.GetWidth(),swapChain.GetHeight() };
+
+	m_rtTarget.Initialize(initParam);
 
 
 }
@@ -1433,7 +1448,7 @@ void	GFX::Finalize()
 #endif
 	//m_rtGeometry.Finalize();
 	m_rtModel.Finalize();
-	m_rtOutput.Finalize();
+	m_rtTarget.Finalize();
 	m_rtBLAS.Finalize();
 	m_rtTLAS.Finalize();
 	m_rtScratch.Finalize();
@@ -1469,6 +1484,10 @@ void	GFX::Update()
 
 
 	g_accTime += deltaTimeInSec;
+
+
+	m_AppTime += deltaTimeInSec;
+
 
 	gfxCore.Update();
 
@@ -1707,7 +1726,7 @@ void	GFX::Render()
 
 				// Raytracing Output
 				//descBuff.CopyHandle(1, texture2D.GetSrvDescHandle());
-				descBuff.CopyHandle(1, m_rtOutput.GetSrvDescHandle());
+				descBuff.CopyHandle(1, m_rtTarget.GetResultSrv());
 
 				GfxLib::DescriptorBuffer sampsBuff = cmdList.AllocateDescriptorBuffer_Sampler(1);
 				sampsBuff.CopyHandle(0, descHeap_Sampler.GetCPUDescriptorHandleByIndex(0));
@@ -1803,7 +1822,7 @@ void	GFX::Render()
 void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 {
 
-	cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::ShaderResource, GfxLib::ResourceStates::UnorderedAccess);
+	//cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::ShaderResource, GfxLib::ResourceStates::UnorderedAccess);
 
 
 	GfxLib::RayTracing::SceneInfo sceneInfo = {};
@@ -1840,7 +1859,9 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	sceneInfo.rtModel = &m_rtModel;
 
-	m_RTRender.Render(cmdList, m_rtOutput.GetUavDescHandle(), sceneInfo);
+	sceneInfo.globalTime = m_AppTime;
+
+	m_RTRender.Render(cmdList, m_rtTarget, sceneInfo);
 
 
 #if 0
@@ -2047,7 +2068,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 #endif
 
-	cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::UnorderedAccess, GfxLib::ResourceStates::ShaderResource);
+	//cmdList.ResourceTransitionBarrier(&m_rtOutput, GfxLib::ResourceStates::UnorderedAccess, GfxLib::ResourceStates::ShaderResource);
 }
 
 
