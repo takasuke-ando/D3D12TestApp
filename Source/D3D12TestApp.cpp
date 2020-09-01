@@ -1148,10 +1148,10 @@ void	GFX::CreateRayTracingGeometry()
 	//std::wstring objfilepath = L"Media/Model/bmw/bmw.obj";
 	//std::wstring objfilepath = L"Media/Model/teapot/teapot.obj";
 	//std::wstring objfilepath = L"Media/Model/sibenik/sibenik.obj";
-	//std::wstring objfilepath = L"Media/Model/sponza/sponza.obj";
+	std::wstring objfilepath = L"Media/Model/sponza/sponza.obj";
 	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Sphere.obj";
 	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Original.obj";
-	std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Water.obj";
+	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Water.obj";
 	//std::wstring objfilepath = L"Media/Model/CornellBox/CornellBox-Glossy-Floor.obj";
 	//float scale = 2.f;
 	//std::wstring objfilepath = L"Media/Model/fireplace_room/fireplace_room.obj";
@@ -1830,7 +1830,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 
 	XMMATRIX mtxCamera = XMMatrixIdentity();
 	//mtxCamera = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
-	mtxCamera.r[3] = XMVectorSet(0.f, 0.f, -m_camDist, 0.f);
+	mtxCamera.r[3] = XMVectorSet(0.f, 0.f, -m_camDist, 1.f);
 
 	XMMATRIX mtxRotate = XMMatrixRotationRollPitchYaw(m_camAngY, m_camAngX, 0.f);
 
@@ -1844,6 +1844,7 @@ void	GFX::DoRayTracing(GfxLib::GraphicsCommandList& cmdList)
 	sceneInfo.texSky = &m_texSky;
 	sceneInfo.texSkyRem = &m_texSkyRem;
 	sceneInfo.texSkyIem = &m_texSkyIem;
+
 
 
 	float aspect = swapChain.GetHeight() / (float)swapChain.GetWidth();
